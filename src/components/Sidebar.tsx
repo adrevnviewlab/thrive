@@ -23,6 +23,8 @@ interface SidebarProps {
   onNavigate: (s: NavSection) => void
   open: boolean
   onClose: () => void
+  onSignOut: () => void
+  sessionLabel?: string
 }
 
 function Icon({ path, path2 }: { path: string; path2?: string }) {
@@ -107,7 +109,7 @@ const navGroups = [
   },
 ]
 
-export default function Sidebar({ current, onNavigate, open, onClose }: SidebarProps) {
+export default function Sidebar({ current, onNavigate, open, onClose, onSignOut, sessionLabel }: SidebarProps) {
   const desktop = useDesktopNav()
   const visible = desktop || open
 
@@ -129,7 +131,7 @@ export default function Sidebar({ current, onNavigate, open, onClose }: SidebarP
             </div>
             <div className="min-w-0">
               <div className="text-sidebar-fg font-semibold text-sm tracking-wide leading-none">STACKR</div>
-              <div className="text-sidebar-muted text-[10px] mt-0.5 leading-none">Smoke Shop</div>
+              <div className="text-sidebar-muted text-[10px] mt-0.5 leading-none">Demo · mock data</div>
             </div>
           </div>
           <button
@@ -180,7 +182,7 @@ export default function Sidebar({ current, onNavigate, open, onClose }: SidebarP
         <ThemeToggle />
       </div>
 
-      <div className="px-4 py-4 border-t border-sidebar-border">
+      <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-success" />
           <span className="text-sidebar-muted text-xs font-medium">Clover Connected</span>
@@ -192,11 +194,20 @@ export default function Sidebar({ current, onNavigate, open, onClose }: SidebarP
           <div className="w-6 h-6 rounded bg-sidebar-hover flex items-center justify-center">
             <span className="text-accent text-[10px] font-bold">C</span>
           </div>
-          <div>
-            <div className="text-sidebar-fg text-[11px] font-medium leading-none">{"Hassan's Smoke Shop"}</div>
-            <div className="text-sidebar-muted text-[10px] mt-0.5">Owner</div>
+          <div className="min-w-0">
+            <div className="text-sidebar-fg text-[11px] font-medium leading-none truncate">
+              {sessionLabel ?? 'Demo Owner'}
+            </div>
+            <div className="text-sidebar-muted text-[10px] mt-0.5">{"Hassan's Smoke Shop"}</div>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="mt-3 w-full rounded-md border border-sidebar-border px-2.5 py-2 text-xs font-medium text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-fg transition-colors"
+        >
+          Exit demo
+        </button>
       </div>
     </aside>
   )

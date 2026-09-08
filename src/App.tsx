@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { AuthProvider, useAuth } from './auth'
 import Sidebar from './components/Sidebar'
+import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import Inventory from './components/Inventory'
 import Scanner from './components/Scanner'
@@ -24,7 +26,8 @@ export type NavSection =
   | 'employees'
   | 'settings'
 
-export default function App() {
+function AppShell() {
+  const { session, signOut } = useAuth()
   const [section, setSection] = useState<NavSection>('dashboard')
   const [navOpen, setNavOpen] = useState(false)
 
@@ -34,7 +37,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full min-h-0 bg-bg text-fg overflow-hidden">
+    <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 bg-bg text-fg overflow-hidden">
       {navOpen && (
         <button
           type="button"
@@ -44,7 +47,14 @@ export default function App() {
         />
       )}
 
-      <Sidebar current={section} onNavigate={handleNavigate} open={navOpen} onClose={() => setNavOpen(false)} />
+      <Sidebar
+        current={section}
+        onNavigate={handleNavigate}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        onSignOut={signOut}
+        sessionLabel={session?.userName}
+      />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <header className="md:hidden flex items-center justify-between gap-3 page-pad py-3 border-b border-border bg-card shrink-0 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -67,13 +77,22 @@ export default function App() {
             </div>
             <div className="min-w-0">
               <div className="text-fg font-semibold text-sm tracking-wide leading-none">STACKR</div>
-              <div className="text-muted-fg text-[10px] mt-0.5 leading-none truncate">Smoke Shop</div>
+              <div className="text-muted-fg text-[10px] mt-0.5 leading-none truncate">Demo · mock data</div>
             </div>
           </div>
           <ThemeToggle compact />
         </header>
 
-        <main className="flex-1 overflow-auto min-w-0 min-h-0">
+        <div className="shrink-0 page-pad py-2 border-b border-warning/20 bg-warning-bg text-warning text-xs flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Demo mode — exploring frontend structure with mock data for {session?.storeName ?? 'this store'}.
+          </span>
+          <button type="button" onClick={signOut} className="font-medium underline underline-offset-2 hover:no-underline">
+            Exit demo
+          </button>
+        </div>
+
+        <main className="flex-1 overflow-auto min-w-0 min-h-0 overscroll-y-contain">
           {section === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
           {section === 'inventory' && <Inventory />}
           {section === 'scanner' && <Scanner />}
@@ -87,5 +106,19 @@ export default function App() {
         </main>
       </div>
     </div>
+  )
+}
+
+function AppGate() {
+  const { isAuthenticated } = useAuth()
+  if (!isAuthenticated) return <Login />
+  return <AppShell />
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppGate />
+    </AuthProvider>
   )
 }
