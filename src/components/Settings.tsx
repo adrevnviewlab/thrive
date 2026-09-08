@@ -15,10 +15,11 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2500)
   }
 
+  const cloverApiKey = import.meta.env.VITE_CLOVER_API_KEY ?? ''
   const cloverStatus = {
-    connected: true,
-    merchantName: "Hassan's Smoke Shop",
-    merchantId: 'MCHT_9V2K4X8P',
+    connected: Boolean(cloverApiKey),
+    merchantName: import.meta.env.VITE_CLOVER_MERCHANT_NAME || "Hassan's Smoke Shop",
+    merchantId: import.meta.env.VITE_CLOVER_MERCHANT_ID || 'MCHT_9V2K4X8P',
     lastSync: '2 minutes ago',
     webhookStatus: 'receiving',
     itemsInClover: 18441,
@@ -56,13 +57,13 @@ export default function Settings() {
                 </div>
                 <div>
                   <div className="font-medium text-fg">Clover POS</div>
-                  <div className="text-xs text-muted-fg">OAuth connected</div>
+                  <div className="text-xs text-muted-fg">{cloverStatus.connected ? 'Connected via env' : 'Missing VITE_CLOVER_API_KEY'}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-xs font-medium text-success">
-                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                  Connected
+                <span className={`flex items-center gap-1.5 text-xs font-medium ${cloverStatus.connected ? 'text-success' : 'text-warning'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${cloverStatus.connected ? 'bg-success' : 'bg-warning'}`} />
+                  {cloverStatus.connected ? 'Connected' : 'Not configured'}
                 </span>
                 <button className="ml-2 text-xs text-danger hover:underline underline-offset-2">Disconnect</button>
               </div>
@@ -89,7 +90,7 @@ export default function Settings() {
                 <div>
                   <div className="text-xs font-semibold text-muted-fg uppercase tracking-wider mb-0.5">Clover API Key</div>
                   <div className="font-mono text-xs text-fg">
-                    {showApiKey ? 'tok_live_8Kp2mNvQxR4ZaL9wCjSf3Y7b' : '••••••••••••••••••••••••••'}
+                    {showApiKey ? cloverApiKey || 'Not set in .env' : '••••••••••••••••••••••••••'}
                   </div>
                 </div>
                 <button
