@@ -1,0 +1,10 @@
+{
+  "description": "This web application offers a user-friendly interface for designing and customizing UI components in light mode, catering to developers and designers seeking efficient design solutions.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
