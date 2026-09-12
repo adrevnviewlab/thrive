@@ -39,7 +39,7 @@ interface AuthContextValue {
   liveAuthAvailable: boolean
   /** False in the sandbox, where the API trusts the email alone. */
   passwordRequired: boolean
-  /** False in production builds that point at a real API (unless VITE_ALLOW_DEMO). */
+  /** Always true — visitors can explore with mock data without credentials. */
   demoAllowed: boolean
   enterDemo: () => void
   signIn: (email: string, password: string) => Promise<void>
@@ -53,8 +53,6 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? ''
 const supabaseAuthAvailable = Boolean(supabaseUrl && supabaseKey)
-const apiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim() ?? ''
-
 /**
  * `pnpm dev:sandbox` in stackr-api serves the real endpoints against an
  * in-process Postgres with auth switched off. Never honour this in a
@@ -64,8 +62,8 @@ const sandboxAuth = import.meta.env.VITE_API_SANDBOX === 'true' && !import.meta.
 
 export const liveAuthAvailable = supabaseAuthAvailable || sandboxAuth
 
-const demoAllowed =
-  !import.meta.env.PROD || import.meta.env.VITE_ALLOW_DEMO === 'true' || !apiUrl
+/** Demo mock data is always available so visitors can tour the product. */
+const demoAllowed = true
 
 function readSession(): Session | null {
   try {

@@ -98,11 +98,9 @@ export default function Login() {
 
           <section className="rounded-2xl border border-border bg-card shadow-[0_24px_60px_color-mix(in_srgb,var(--fg)_12%,transparent)] p-5 sm:p-7">
             <div className="mb-5">
-              <h2 className="font-display text-xl font-medium text-fg">Sign in</h2>
+              <h2 className="font-display text-xl font-medium text-fg">Get started</h2>
               <p className="text-sm text-muted-fg mt-1">
-                {liveAuthAvailable
-                  ? 'Use your work email to access the live store ledger.'
-                  : 'Use demo access to walk the UI structure with seeded data.'}
+                Tour the full console with mock smoke-shop data, or sign in to your live store.
               </p>
             </div>
 
@@ -111,19 +109,18 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={enterDemo}
-                  className={`w-full flex items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-sm font-semibold transition-colors ${
-                    liveAuthAvailable
-                      ? 'border border-border text-fg hover:bg-subtle'
-                      : 'bg-primary text-primary-fg hover:bg-primary/90'
-                  }`}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-fg px-4 py-3.5 text-sm font-semibold hover:bg-primary/90 transition-colors"
                 >
                   Enter demo — no credentials
                 </button>
+                <p className="mt-2 text-[11px] text-center text-muted-fg">
+                  Loads Hassan&apos;s Smoke Shop mock inventory, POs, vendors, and reports.
+                </p>
 
                 {liveAuthAvailable && (
                   <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-fg">
                     <div className="h-px flex-1 bg-border" />
-                    <span>or</span>
+                    <span>or sign in</span>
                     <div className="h-px flex-1 bg-border" />
                   </div>
                 )}
@@ -166,21 +163,11 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={signingIn}
-                  className={`w-full rounded-lg px-4 py-2.5 text-sm font-medium disabled:opacity-50 transition-colors ${
-                    liveAuthAvailable && !demoAllowed
-                      ? 'bg-primary text-primary-fg hover:bg-primary/90'
-                      : 'border border-border text-fg hover:bg-subtle'
-                  }`}
+                  className="w-full rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-fg hover:bg-subtle disabled:opacity-50 transition-colors"
                 >
                   {signingIn ? 'Signing in…' : liveAuthAvailable ? 'Sign in' : 'Continue with demo account'}
                 </button>
               </form>
-            )}
-
-            {demoAllowed && (
-              <p className="mt-4 text-[11px] leading-relaxed text-muted-fg">
-                Demo session loads Hassan&apos;s Smoke Shop mock inventory, Clover sync states, POs, vendors, counts, and reports so you can inspect the frontend layout end to end.
-              </p>
             )}
           </section>
         </div>
