@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useDataSource, useMovements, usePermissions } from '../data/provider'
+import { formatDate, formatDelta, formatTime } from '../lib/format'
 
 interface ReceiveItem {
   id: string
@@ -10,14 +12,6 @@ interface ReceiveItem {
   cost: string
   note: string
 }
-
-const recentReceives = [
-  { id: 'RCV-1089', date: 'Sep 8, 2026', time: '4:12 PM', vendor: 'Vapor Beast', items: 3, totalUnits: 48, employee: 'Hassan M.', status: 'completed' },
-  { id: 'RCV-1088', date: 'Sep 7, 2026', time: '2:45 PM', vendor: 'McLane Company', items: 12, totalUnits: 204, employee: 'Marcus T.', status: 'completed' },
-  { id: 'RCV-1087', date: 'Sep 6, 2026', time: '10:18 AM', vendor: 'World Wide Wholesale', items: 7, totalUnits: 86, employee: 'Hassan M.', status: 'completed' },
-  { id: 'RCV-1086', date: 'Sep 5, 2026', time: '3:30 PM', vendor: 'Standard Wholesale', items: 5, totalUnits: 120, employee: 'Aisha R.', status: 'completed' },
-  { id: 'RCV-1085', date: 'Sep 4, 2026', time: '11:00 AM', vendor: 'Coastal Wholesale', items: 2, totalUnits: 40, employee: 'Marcus T.', status: 'completed' },
-]
 
 const defaultItem: ReceiveItem = {
   id: '',
@@ -31,9 +25,17 @@ const defaultItem: ReceiveItem = {
 }
 
 export default function ReceiveStock() {
+  const source = useDataSource()
+  const { canManageInventory } = usePermissions()
+  const movements = useMovements(40)
+
   const [items, setItems] = useState<ReceiveItem[]>([{ ...defaultItem }])
   const [scannedInput, setScannedInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const recentReceives = (movements.data ?? []).filter((movement) => movement.reason === 'receive').slice(0, 6)
 
   function addItem() {
     setItems([...items, { ...defaultItem }])
@@ -44,28 +46,64 @@ export default function ReceiveStock() {
   }
 
   function updateItem(i: number, field: keyof ReceiveItem, value: string) {
-    const updated = [...items]
-    ;(updated[i] as any)[field] = value
-    setItems(updated)
+    setItems((current) => current.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)))
   }
 
-  function handleDemoScan() {
-    setItems([{
-      id: '12001',
-      name: 'Elf Bar BC5000 Blue Razz',
-      sku: 'ELF-BC5000-BR',
-      currentStock: 4,
-      qtyToAdd: '24',
-      vendor: 'Vapor Beast',
-      cost: '9.50',
-      note: '',
-    }])
-    setScannedInput('850049765432')
+  async function handleAddByCode() {
+    const code = scannedInput.trim()
+    if (!code) return
+    setError(null)
+    try {
+      const result = await source.lookup(code)
+      if (!result.found || !result.product) {
+        setError(`Nothing matched "${code}"`)
+        return
+      }
+      const product = result.product
+      const row: ReceiveItem = {
+        id: product.id,
+        name: product.name,
+        sku: product.sku,
+        currentStock: product.stock,
+        qtyToAdd: '',
+        vendor: product.vendor,
+        cost: product.cost.toFixed(2),
+        note: '',
+      }
+      setItems((current) => {
+        const blankIndex = current.findIndex((item) => !item.id)
+        if (blankIndex === -1) return [...current, row]
+        return current.map((item, idx) => (idx === blankIndex ? row : item))
+      })
+      setScannedInput('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Lookup failed')
+    }
   }
 
-  function handleSubmit() {
-    setSubmitted(true)
-    setTimeout(() => setSubmitted(false), 3000)
+  async function handleSubmit() {
+    if (!canManageInventory) {
+      setError('You do not have permission to receive stock')
+      return
+    }
+    const payload = items.filter((item) => item.id && Number(item.qtyToAdd) > 0)
+    if (payload.length === 0) return
+
+    setSaving(true)
+    setError(null)
+    try {
+      for (const item of payload) {
+        await source.receive({ productId: item.id, quantity: Number(item.qtyToAdd), note: item.note })
+      }
+      setItems([{ ...defaultItem }])
+      setSubmitted(true)
+      movements.refresh()
+      setTimeout(() => setSubmitted(false), 3000)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not record this receipt')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -88,10 +126,14 @@ export default function ReceiveStock() {
                 <path d="M20 6L9 17l-5-5" />
               </svg>
               <div>
-                <div className="text-sm font-semibold text-success">Stock received — RCV-1090</div>
+                <div className="text-sm font-semibold text-success">Stock received</div>
                 <div className="text-xs text-success/80 mt-0.5">Inventory updated · Clover sync queued</div>
               </div>
             </div>
+          )}
+
+          {error && (
+            <div className="p-4 bg-danger-bg border border-danger/20 rounded-lg text-sm text-danger">{error}</div>
           )}
 
           {/* Scan to add */}
@@ -107,11 +149,17 @@ export default function ReceiveStock() {
                   placeholder="Scan barcode or search by name / SKU…"
                   value={scannedInput}
                   onChange={(e) => setScannedInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void handleAddByCode()
+                    }
+                  }}
                   className="w-full pl-8 pr-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 font-mono"
                 />
               </div>
               <button
-                onClick={handleDemoScan}
+                onClick={() => void handleAddByCode()}
                 className="px-4 py-2 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 Add
@@ -205,11 +253,12 @@ export default function ReceiveStock() {
                 {items.reduce((sum, item) => sum + (parseInt(item.qtyToAdd) || 0), 0)} units total
               </div>
               <button
-                onClick={handleSubmit}
-                disabled={!items.some((item) => item.name && item.qtyToAdd)}
+                onClick={() => void handleSubmit()}
+                disabled={!canManageInventory || saving || !items.some((item) => item.id && Number(item.qtyToAdd) > 0)}
                 className="px-5 py-2 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title={canManageInventory ? undefined : 'Manager access required'}
               >
-                Confirm Receipt
+                {saving ? 'Recording…' : 'Confirm Receipt'}
               </button>
             </div>
           </div>
@@ -222,20 +271,23 @@ export default function ReceiveStock() {
               <h2 className="font-display text-[15px] font-medium text-fg">Recent Receives</h2>
             </div>
             <div className="divide-y divide-border">
+              {recentReceives.length === 0 && (
+                <div className="px-5 py-8 text-center text-xs text-muted-fg">No receipts recorded yet.</div>
+              )}
               {recentReceives.map((r) => (
-                <div key={r.id} className="px-5 py-3.5 hover:bg-subtle/40 transition-colors cursor-pointer">
+                <div key={r.id} className="px-5 py-3.5 hover:bg-subtle/40 transition-colors">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-medium text-primary">{r.id}</span>
+                    <span className="font-mono text-xs font-medium text-primary">{formatDelta(r.delta)} units</span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-success">
                       <span className="w-1.5 h-1.5 rounded-full bg-success" />
                       Done
                     </span>
                   </div>
-                  <div className="text-sm font-medium text-fg mt-1">{r.vendor}</div>
+                  <div className="text-sm font-medium text-fg mt-1">{r.productName}</div>
                   <div className="text-xs text-muted-fg mt-0.5">
-                    {r.date} · {r.items} items · {r.totalUnits} units
+                    {formatDate(r.createdAt)} · {formatTime(r.createdAt)} · now {r.quantityAfter}
                   </div>
-                  <div className="text-xs text-muted-fg mt-0.5">{r.employee}</div>
+                  <div className="text-xs text-muted-fg mt-0.5">{r.actor}</div>
                 </div>
               ))}
             </div>

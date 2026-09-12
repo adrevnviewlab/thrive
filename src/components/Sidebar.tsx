@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavSection } from '../App'
+import { useSettings, useViewer } from '../data/provider'
+import { formatRelative } from '../lib/format'
 import ThemeToggle from '../theme'
 
 function useDesktopNav() {
@@ -25,6 +27,7 @@ interface SidebarProps {
   onClose: () => void
   onSignOut: () => void
   sessionLabel?: string
+  demoMode: boolean
 }
 
 function Icon({ path, path2 }: { path: string; path2?: string }) {
@@ -62,6 +65,10 @@ const icons: Record<string, { path: string; path2?: string }> = {
     path2: 'M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
   },
   reports: { path: 'M18 20V10M12 20V4M6 20v-6' },
+  migration: {
+    path: 'M12 3v12',
+    path2: 'M8 11l4 4 4-4M4 19h16',
+  },
   employees: {
     path: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2',
     path2: 'M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75',
@@ -104,14 +111,28 @@ const navGroups = [
     label: 'Admin',
     items: [
       { id: 'employees' as NavSection, label: 'Employees', icon: 'employees' },
+      { id: 'migration' as NavSection, label: 'Thrive Import', icon: 'migration' },
       { id: 'settings' as NavSection, label: 'Settings', icon: 'settings' },
     ],
   },
 ]
 
-export default function Sidebar({ current, onNavigate, open, onClose, onSignOut, sessionLabel }: SidebarProps) {
+export default function Sidebar({ current, onNavigate, open, onClose, onSignOut, sessionLabel, demoMode }: SidebarProps) {
   const desktop = useDesktopNav()
   const visible = desktop || open
+  const { data: settings } = useSettings()
+  const { data: viewer } = useViewer()
+
+  const clover = settings?.clover
+  const sync = settings?.sync
+  const connected = Boolean(clover?.connected)
+  const cloverLabel = !clover
+    ? 'Clover status unknown'
+    : clover.mode === 'mock'
+      ? 'Clover mock adapter'
+      : connected
+        ? 'Clover connected'
+        : 'Clover not connected'
 
   return (
     <aside
@@ -131,7 +152,9 @@ export default function Sidebar({ current, onNavigate, open, onClose, onSignOut,
             </div>
             <div className="min-w-0">
               <div className="text-sidebar-fg font-semibold text-sm tracking-wide leading-none">STACKR</div>
-              <div className="text-sidebar-muted text-[10px] mt-0.5 leading-none">Demo · mock data</div>
+              <div className="text-sidebar-muted text-[10px] mt-0.5 leading-none truncate">
+                {demoMode ? 'Demo · mock data' : (settings?.merchant.name ?? 'Inventory')}
+              </div>
             </div>
           </div>
           <button
@@ -184,11 +207,13 @@ export default function Sidebar({ current, onNavigate, open, onClose, onSignOut,
 
       <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-2 h-2 rounded-full bg-success" />
-          <span className="text-sidebar-muted text-xs font-medium">Clover Connected</span>
+          <div className={`w-2 h-2 rounded-full ${connected || clover?.mode === 'mock' ? 'bg-success' : 'bg-warning'}`} />
+          <span className="text-sidebar-muted text-xs font-medium">{cloverLabel}</span>
         </div>
         <div className="text-sidebar-muted text-[11px]">
-          Last sync: <span className="text-sidebar-fg">2m ago</span>
+          Last sync:{' '}
+          <span className="text-sidebar-fg">{sync?.lastSyncedAt ? formatRelative(sync.lastSyncedAt) : 'never'}</span>
+          {sync && sync.pending > 0 ? <span className="text-warning"> · {sync.pending} queued</span> : null}
         </div>
         <div className="mt-3 flex items-center gap-2">
           <div className="w-6 h-6 rounded bg-sidebar-hover flex items-center justify-center">
@@ -196,9 +221,11 @@ export default function Sidebar({ current, onNavigate, open, onClose, onSignOut,
           </div>
           <div className="min-w-0">
             <div className="text-sidebar-fg text-[11px] font-medium leading-none truncate">
-              {sessionLabel ?? 'Demo Owner'}
+              {viewer?.name ?? sessionLabel ?? 'Demo Owner'}
             </div>
-            <div className="text-sidebar-muted text-[10px] mt-0.5">{"Hassan's Smoke Shop"}</div>
+            <div className="text-sidebar-muted text-[10px] mt-0.5 truncate capitalize">
+              {viewer ? `${viewer.role} · ${viewer.storeName}` : (settings?.merchant.name ?? "Hassan's Smoke Shop")}
+            </div>
           </div>
         </div>
         <button
@@ -206,7 +233,7 @@ export default function Sidebar({ current, onNavigate, open, onClose, onSignOut,
           onClick={onSignOut}
           className="mt-3 w-full rounded-md border border-sidebar-border px-2.5 py-2 text-xs font-medium text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-fg transition-colors"
         >
-          Exit demo
+          {demoMode ? 'Exit demo' : 'Sign out'}
         </button>
       </div>
     </aside>

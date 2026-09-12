@@ -1,4 +1,8 @@
+import { useState } from 'react'
 import { NavSection } from '../App'
+import { useDashboard, useDataSource, usePermissions } from '../data/provider'
+import { formatDelta, formatMoneyCompact, formatNumber, formatRelative, formatTime, movementLabel } from '../lib/format'
+import { ErrorState, LoadingRows } from './States'
 
 interface DashboardProps {
   onNavigate: (s: NavSection) => void
@@ -20,68 +24,93 @@ function Badge({ variant, children }: { variant: 'success' | 'warning' | 'danger
   )
 }
 
-const kpis = [
-  {
-    label: 'Total Products',
-    value: '18,492',
-    sub: '↑ 24 added this week',
-    icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
-    color: 'text-info',
-    bg: 'bg-info-bg',
-  },
-  {
-    label: 'Low Stock Items',
-    value: '47',
-    sub: '12 critically low',
-    icon: 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z',
-    color: 'text-warning',
-    bg: 'bg-warning-bg',
-  },
-  {
-    label: 'Pending Clover Sync',
-    value: '3',
-    sub: 'Will retry in ~1 min',
-    icon: 'M4 4v5h5M20 20v-5h-5M4 20l5-5M20 4l-5 5',
-    color: 'text-sync',
-    bg: 'bg-sync-bg',
-  },
-  {
-    label: "Today's Transactions",
-    value: '124',
-    sub: '↑ 18% vs yesterday',
-    icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
-    color: 'text-success',
-    bg: 'bg-success-bg',
-  },
-]
-
-const lowStockItems = [
-  { name: 'Elf Bar BC5000 Blue Razz', sku: 'ELF-BC5000-BR', stock: 4, min: 20, vendor: 'Vapor Beast', status: 'critical' },
-  { name: 'Hyde Retro RAVE Watermelon Ice', sku: 'HYD-RETRO-WI', stock: 7, min: 15, vendor: 'World Wide Wholesale', status: 'low' },
-  { name: 'Backwoods Honey Bourbon (5pk)', sku: 'BW-HONEY-5PK', stock: 3, min: 24, vendor: 'McLane Company', status: 'critical' },
-  { name: 'RAW Classic King Size Rolling Papers', sku: 'RAW-CLS-KS', stock: 8, min: 30, vendor: 'Standard Wholesale', status: 'low' },
-  { name: 'Bic Classic Lighter – Assorted', sku: 'BIC-CLS-ASST', stock: 14, min: 50, vendor: 'McLane Company', status: 'low' },
-  { name: 'Swisher Sweets Grape (2pk)', sku: 'SWI-GRP-2PK', stock: 5, min: 48, vendor: 'McLane Company', status: 'critical' },
-]
-
-const recentMovements = [
-  { product: 'Elf Bar BC5000 Strawberry Mango', qty: -2, reason: 'Sale (Clover)', time: '9:44 PM', employee: 'Auto-sync' },
-  { product: 'Grav Labs 7" Water Pipe', qty: -1, reason: 'Sale (Clover)', time: '9:31 PM', employee: 'Auto-sync' },
-  { product: 'Hyde Rebel Pro 5000 Puffs', qty: +24, reason: 'Received from PO #1084', time: '4:12 PM', employee: 'Hassan M.' },
-  { product: 'RAW Cone 1¼ (32pk)', qty: -3, reason: 'Sale (Clover)', time: '3:58 PM', employee: 'Auto-sync' },
-  { product: 'Swisher Sweets Peach (2pk)', qty: -4, reason: 'Sale (Clover)', time: '3:22 PM', employee: 'Auto-sync' },
-  { product: 'Bic Classic Lighter – Red', qty: +50, reason: 'Stock adjustment', time: '1:05 PM', employee: 'Marcus T.' },
-  { product: 'Delta-8 THC Gummies 25mg (20ct)', qty: -1, reason: 'Sale (Clover)', time: '12:47 PM', employee: 'Auto-sync' },
-  { product: 'Backwoods Honey Bourbon (5pk)', qty: -6, reason: 'Damaged – water', time: '11:30 AM', employee: 'Hassan M.' },
-]
-
-const pendingSync = [
-  { id: 'SYN-4821', product: 'Elf Bar BC5000 Blue Razz', change: '+20', attempts: 2, error: 'API timeout', since: '8 min ago' },
-  { id: 'SYN-4820', product: 'Hyde Retro RAVE Mango Ice', change: '+12', attempts: 1, error: 'Rate limit', since: '12 min ago' },
-  { id: 'SYN-4819', product: 'Swisher Sweets Grape (2pk)', change: '-6', attempts: 3, error: 'Connection refused', since: '18 min ago' },
-]
+const KPI_ICONS = {
+  products: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  lowStock: 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z',
+  sync: 'M4 4v5h5M20 20v-5h-5M4 20l5-5M20 4l-5 5',
+  sales: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+}
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
+  const { data, loading, error, refresh } = useDashboard()
+  const source = useDataSource()
+  const { canManageInventory: canRetry } = usePermissions()
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
+
+  async function retryAll() {
+    setRetrying(true)
+    setRetryError(null)
+    try {
+      await source.runSyncJob('retry')
+      refresh()
+    } catch (cause) {
+      setRetryError(cause instanceof Error ? cause.message : 'Could not start the retry pass')
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  const kpiCards = data
+    ? [
+        {
+          label: 'Total Products',
+          value: formatNumber(data.kpis.totalProducts),
+          sub: `↑ ${formatNumber(data.kpis.addedThisWeek)} added this week`,
+          icon: KPI_ICONS.products,
+          color: 'text-info',
+          bg: 'bg-info-bg',
+        },
+        {
+          label: 'Low Stock Items',
+          value: formatNumber(data.kpis.lowStock),
+          sub: `${formatNumber(data.kpis.criticalStock)} critically low`,
+          icon: KPI_ICONS.lowStock,
+          color: 'text-warning',
+          bg: 'bg-warning-bg',
+        },
+        {
+          label: 'Pending Clover Sync',
+          value: formatNumber(data.kpis.pendingSync),
+          sub: data.kpis.failedSync > 0 ? `${formatNumber(data.kpis.failedSync)} failed` : 'Retries every 5 min',
+          icon: KPI_ICONS.sync,
+          color: 'text-sync',
+          bg: 'bg-sync-bg',
+        },
+        {
+          label: "Today's Transactions",
+          value: formatNumber(data.kpis.transactionsToday),
+          sub: `Inventory value ${formatMoneyCompact(data.kpis.inventoryValue)}`,
+          icon: KPI_ICONS.sales,
+          color: 'text-success',
+          bg: 'bg-success-bg',
+        },
+      ]
+    : []
+
+  const lowStockItems = data?.lowStockItems ?? []
+  const recentMovements = data?.recentMovements ?? []
+  const pendingSync = data?.pendingSync ?? []
+
+  const cloverChip =
+    (data?.kpis.failedSync ?? 0) > 0
+      ? {
+          label: `Clover sync failing — ${formatNumber(data!.kpis.failedSync)}`,
+          className: 'bg-danger-bg border-danger-bg text-danger',
+          dot: 'bg-danger',
+        }
+      : (data?.kpis.pendingSync ?? 0) > 0
+        ? {
+            label: `Clover sync queued — ${formatNumber(data!.kpis.pendingSync)}`,
+            className: 'bg-warning-bg border-warning-bg text-warning',
+            dot: 'bg-warning',
+          }
+        : {
+            label: 'Clover synced',
+            className: 'bg-success-bg border-success-bg text-success',
+            dot: 'bg-success',
+          }
+
   return (
     <div className="min-h-full">
       {/* Header */}
@@ -89,12 +118,15 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-[22px] font-medium text-fg leading-tight">Dashboard</h1>
-            <p className="text-sm text-muted-fg mt-0.5">Sep 8, 2026 · Hassan's Smoke Shop</p>
+            <p className="text-sm text-muted-fg mt-0.5">
+              {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {data ? ` · ${data.storeName}` : ''}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-success-bg border border-success-bg text-success text-xs font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-              Clover Synced
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium ${cloverChip.className}`}>
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${cloverChip.dot}`} />
+              {cloverChip.label}
             </div>
             <button
               onClick={() => onNavigate('scanner')}
@@ -110,10 +142,13 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         </div>
       </div>
 
+      {error && <ErrorState message={error} onRetry={refresh} />}
+      {loading && !data && <LoadingRows rows={6} label="Loading dashboard" />}
+
       <div className="page-pad py-6 space-y-6">
         {/* KPI row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          {kpis.map((k) => (
+          {kpiCards.map((k) => (
             <div key={k.label} className="bg-card border border-border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-medium text-muted-fg">{k.label}</span>
@@ -139,18 +174,30 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 </svg>
                 <span className="text-sm font-semibold text-warning">Clover sync pending — {pendingSync.length} items queued</span>
               </div>
-              <button className="text-xs text-warning font-medium underline underline-offset-2 hover:no-underline">
-                Retry All
-              </button>
+              {canRetry ? (
+                <button
+                  type="button"
+                  onClick={retryAll}
+                  disabled={retrying}
+                  className="text-xs font-medium text-warning underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                >
+                  {retrying ? 'Retrying…' : 'Retry all now'}
+                </button>
+              ) : (
+                <span className="text-xs text-warning/70">Retried automatically</span>
+              )}
             </div>
+            {retryError && <p className="mb-3 text-xs text-danger">{retryError}</p>}
             <div className="space-y-1.5">
               {pendingSync.map((s) => (
                 <div key={s.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-xs">
-                  <span className="font-mono text-warning/80">{s.id}</span>
+                  <span className="font-mono text-warning/80">{s.id.slice(0, 8)}</span>
                   <span className="flex-1 sm:px-3 text-warning/90">{s.product}</span>
-                  <span className="font-mono text-warning font-medium">{s.change}</span>
-                  <span className="sm:ml-4 text-warning/70">{s.attempts} attempts · {s.error}</span>
-                  <span className="sm:ml-4 text-warning/60">{s.since}</span>
+                  <span className="font-mono text-warning font-medium">→ {s.desiredQuantity}</span>
+                  <span className="sm:ml-4 text-warning/70">
+                    {s.attempts} attempts{s.error ? ` · ${s.error}` : ''}
+                  </span>
+                  <span className="sm:ml-4 text-warning/60">{formatRelative(s.updatedAt)}</span>
                 </div>
               ))}
             </div>
@@ -184,18 +231,18 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {lowStockItems.map((item, i) => (
-                  <tr key={i} className="border-b border-border hover:bg-subtle/40 transition-colors cursor-pointer">
+                {lowStockItems.map((item) => (
+                  <tr key={item.id} className="border-b border-border hover:bg-subtle/40 transition-colors cursor-pointer">
                     <td className="px-5 py-3">
                       <div className="font-medium text-fg text-sm">{item.name}</div>
                       <div className="font-mono text-[11px] text-muted-fg mt-0.5">{item.sku}</div>
                     </td>
-                    <td className="px-3 py-3 text-right font-mono font-semibold text-danger text-sm">{item.stock}</td>
-                    <td className="px-3 py-3 text-right font-mono text-muted-fg text-sm">{item.min}</td>
+                    <td className="px-3 py-3 text-right font-mono font-semibold text-danger text-sm">{item.quantity}</td>
+                    <td className="px-3 py-3 text-right font-mono text-muted-fg text-sm">{item.minStock}</td>
                     <td className="px-3 py-3 text-sm text-muted-fg">{item.vendor}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={item.status === 'critical' ? 'danger' : 'warning'}>
-                        {item.status === 'critical' ? 'Critical' : 'Low'}
+                      <Badge variant={item.status === 'low' ? 'warning' : 'danger'}>
+                        {item.status === 'out' ? 'Out' : item.status === 'critical' ? 'Critical' : 'Low'}
                       </Badge>
                     </td>
                   </tr>
@@ -212,21 +259,21 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               <p className="text-[11px] text-muted-fg mt-0.5">Today's inventory activity</p>
             </div>
             <div className="divide-y divide-border">
-              {recentMovements.map((m, i) => (
-                <div key={i} className="px-5 py-3 hover:bg-subtle/40 transition-colors">
+              {recentMovements.map((m) => (
+                <div key={m.id} className="px-5 py-3 hover:bg-subtle/40 transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-fg truncate">{m.product}</div>
-                      <div className="text-[11px] text-muted-fg mt-0.5">{m.reason}</div>
+                      <div className="text-sm font-medium text-fg truncate">{m.productName}</div>
+                      <div className="text-[11px] text-muted-fg mt-0.5">{movementLabel(m.reason, m.note)}</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className={`font-mono text-sm font-semibold ${m.qty > 0 ? 'text-success' : 'text-danger'}`}>
-                        {m.qty > 0 ? `+${m.qty}` : m.qty}
+                      <div className={`font-mono text-sm font-semibold ${m.delta > 0 ? 'text-success' : 'text-danger'}`}>
+                        {formatDelta(m.delta)}
                       </div>
-                      <div className="text-[10px] text-muted-fg mt-0.5">{m.time}</div>
+                      <div className="text-[10px] text-muted-fg mt-0.5">{formatTime(m.createdAt)}</div>
                     </div>
                   </div>
-                  <div className="text-[10px] text-muted-fg mt-1">{m.employee}</div>
+                  <div className="text-[10px] text-muted-fg mt-1">{m.actor}</div>
                 </div>
               ))}
             </div>

@@ -1,72 +1,41 @@
 import { useState } from 'react'
+import { useAuditLog, useCategoryReport, useMovementSeries, useTopMovers } from '../data/provider'
+import { downloadCsv, toCsv } from '../lib/csv'
+import { formatDateTime, formatMoney, formatMoneyCompact, formatNumber } from '../lib/format'
+import type { AuditEntry, CategoryReportRow, MovementSeriesPoint } from '../types'
+import { EmptyState, ErrorState, LoadingRows } from './States'
 
-const movementData = [
-  { day: 'Mon', received: 48, sold: 67, adjustments: 3 },
-  { day: 'Tue', received: 0, sold: 82, adjustments: 0 },
-  { day: 'Wed', received: 120, sold: 74, adjustments: 5 },
-  { day: 'Thu', received: 0, sold: 91, adjustments: 2 },
-  { day: 'Fri', received: 0, sold: 108, adjustments: 1 },
-  { day: 'Sat', received: 36, sold: 134, adjustments: 0 },
-  { day: 'Sun', received: 0, sold: 112, adjustments: 4 },
-]
-
-const categoryData = [
-  { category: 'Disposable Vapes', sold: 284, revenue: 5680, margin: 52 },
-  { category: 'Cigars', sold: 198, revenue: 594, margin: 53 },
-  { category: 'Rolling Papers', sold: 143, revenue: 286, margin: 54 },
-  { category: 'Lighters', sold: 97, revenue: 222, margin: 58 },
-  { category: 'Pipes & Glass', sold: 12, revenue: 540, margin: 61 },
-  { category: 'Accessories', sold: 34, revenue: 680, margin: 58 },
-  { category: 'Kratom', sold: 28, revenue: 700, margin: 55 },
-  { category: 'CBD', sold: 19, revenue: 665, margin: 60 },
-]
-
-const topMovers = [
-  { name: 'Elf Bar BC5000 Strawberry Mango', sku: 'ELF-BC5000-SM', sold: 48, revenue: 959.52, trend: 'up' },
-  { name: 'Swisher Sweets Grape (2pk)', sku: 'SWI-GRP-2PK', sold: 44, revenue: 131.56, trend: 'up' },
-  { name: 'Bic Classic Lighter – Assorted', sku: 'BIC-CLS-ASST', sold: 38, revenue: 87.02, trend: 'steady' },
-  { name: 'Hyde Retro RAVE Watermelon Ice', sku: 'HYD-RETRO-WI', sold: 31, revenue: 557.69, trend: 'down' },
-  { name: 'RAW Classic King Size', sku: 'RAW-CLS-KS', sold: 29, revenue: 72.21, trend: 'up' },
-  { name: 'Swisher Sweets Peach (2pk)', sku: 'SWI-PCH-2PK', sold: 27, revenue: 80.73, trend: 'steady' },
-]
-
-const auditLog = [
-  { id: 'AUD-9902', time: '9:44 PM', product: 'Elf Bar BC5000 Blue Razz', oldQty: 6, newQty: 4, change: -2, reason: 'Sale (Clover #CLV-88210)', employee: 'Auto-sync' },
-  { id: 'AUD-9901', time: '9:31 PM', product: 'Grav Labs 7" Water Pipe', oldQty: 7, newQty: 6, change: -1, reason: 'Sale (Clover #CLV-88195)', employee: 'Auto-sync' },
-  { id: 'AUD-9900', time: '4:12 PM', product: 'Hyde Rebel Pro 5000 Puffs', oldQty: 0, newQty: 24, change: 24, reason: 'Received – PO-1084', employee: 'Hassan M.' },
-  { id: 'AUD-9899', time: '1:05 PM', product: 'Bic Classic Lighter – Red', oldQty: 0, newQty: 50, change: 50, reason: 'Stock adjustment', employee: 'Marcus T.' },
-  { id: 'AUD-9898', time: '11:30 AM', product: 'Backwoods Honey Bourbon (5pk)', oldQty: 9, newQty: 3, change: -6, reason: 'Damaged – water', employee: 'Hassan M.' },
-]
-
-function SimpleBarChart() {
-  const max = Math.max(...movementData.map(d => Math.max(d.received, d.sold)))
+function SimpleBarChart({ series }: { series: MovementSeriesPoint[] }) {
+  const max = Math.max(1, ...series.map((point) => Math.max(point.received, point.removed)))
   return (
     <div>
       <div className="flex items-end gap-1.5 h-28">
-        {movementData.map((d) => (
-          <div key={d.day} className="flex-1 flex items-end gap-0.5">
+        {series.map((point, index) => (
+          <div key={`${point.label}-${index}`} className="flex-1 flex items-end gap-0.5">
             <div
               className="flex-1 rounded-sm bg-primary/85 transition-all"
-              style={{ height: `${(d.sold / max) * 100}%` }}
-              title={`Sold: ${d.sold}`}
+              style={{ height: `${(point.removed / max) * 100}%` }}
+              title={`Removed: ${point.removed}`}
             />
             <div
               className="flex-1 rounded-sm bg-accent/70 transition-all"
-              style={{ height: `${(d.received / max) * 100}%` }}
-              title={`Received: ${d.received}`}
+              style={{ height: `${(point.received / max) * 100}%` }}
+              title={`Received: ${point.received}`}
             />
           </div>
         ))}
       </div>
       <div className="flex items-center justify-between mt-1">
-        {movementData.map((d) => (
-          <div key={d.day} className="flex-1 text-center text-[10px] text-muted-fg">{d.day}</div>
+        {series.map((point, index) => (
+          <div key={`${point.label}-label-${index}`} className="flex-1 text-center text-[10px] text-muted-fg">
+            {point.label}
+          </div>
         ))}
       </div>
       <div className="flex items-center gap-4 mt-3">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-primary" />
-          <span className="text-xs text-muted-fg">Units Sold</span>
+          <span className="text-xs text-muted-fg">Units Out</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-accent/70" />
@@ -77,27 +46,89 @@ function SimpleBarChart() {
   )
 }
 
-function MarginBar({ margin }: { margin: number }) {
+function ShareBar({ share }: { share: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-        <div className="h-full bg-primary rounded-full" style={{ width: `${margin}%` }} />
+        <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(100, share)}%` }} />
       </div>
-      <span className="font-mono text-xs text-fg w-8 text-right">{margin}%</span>
+      <span className="font-mono text-xs text-fg w-10 text-right">{share.toFixed(0)}%</span>
     </div>
   )
 }
 
 const tabs = ['Overview', 'Movements', 'Audit Log']
 
+const auditChange = (entry: AuditEntry) => {
+  const meta = entry.meta as { change?: number; delta?: number }
+  return typeof meta.change === 'number' ? meta.change : typeof meta.delta === 'number' ? meta.delta : null
+}
+
+const auditProduct = (entry: AuditEntry) => {
+  const meta = entry.meta as { productName?: string }
+  return meta.productName ?? entry.entityType
+}
+
 export default function Reports() {
   const [tab, setTab] = useState('Overview')
-  const [dateRange, setDateRange] = useState('7d')
 
-  const totalSold = movementData.reduce((s, d) => s + d.sold, 0)
-  const totalReceived = movementData.reduce((s, d) => s + d.received, 0)
-  const totalRevenue = categoryData.reduce((s, d) => s + d.revenue, 0)
-  const avgMargin = Math.round(categoryData.reduce((s, d) => s + d.margin, 0) / categoryData.length)
+  const series = useMovementSeries()
+  const movers = useTopMovers()
+  const byCategory = useCategoryReport()
+  const audit = useAuditLog()
+
+  const movementData = series.data ?? []
+  const topMovers = movers.data ?? []
+  const categoryData: CategoryReportRow[] = byCategory.data ?? []
+  const auditLog = audit.data ?? []
+
+  const totalRemoved = movementData.reduce((sum, point) => sum + point.removed, 0)
+  const totalReceived = movementData.reduce((sum, point) => sum + point.received, 0)
+  const totalRevenue = topMovers.reduce((sum, mover) => sum + mover.revenue, 0)
+  const totalMargin = topMovers.reduce((sum, mover) => sum + mover.margin, 0)
+  const avgMargin = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0
+  const totalValue = categoryData.reduce((sum, row) => sum + row.value, 0)
+
+  /** Exports whatever the visible tab is showing, so the file matches the screen. */
+  function exportTab() {
+    const stamp = new Date().toISOString().slice(0, 10)
+
+    if (tab === 'Audit Log') {
+      downloadCsv(
+        `stackr-audit-log-${stamp}.csv`,
+        toCsv(
+          ['When', 'Action', 'Subject', 'Change', 'By'],
+          auditLog.map((entry) => [
+            entry.createdAt,
+            entry.action,
+            auditProduct(entry),
+            auditChange(entry),
+            entry.actor,
+          ]),
+        ),
+      )
+      return
+    }
+
+    if (tab === 'Movements') {
+      downloadCsv(
+        `stackr-movements-${stamp}.csv`,
+        toCsv(
+          ['Day', 'Units out', 'Units received', 'Net'],
+          movementData.map((point) => [point.label, point.removed, point.received, point.received - point.removed]),
+        ),
+      )
+      return
+    }
+
+    downloadCsv(
+      `stackr-category-report-${stamp}.csv`,
+      toCsv(
+        ['Category', 'Products', 'On hand', 'Units sold', 'Stock value'],
+        categoryData.map((row) => [row.category, row.products, row.onHand, row.unitsSold, row.value.toFixed(2)]),
+      ),
+    )
+  }
 
   return (
     <div className="min-h-full">
@@ -108,21 +139,30 @@ export default function Reports() {
             <p className="text-sm text-muted-fg mt-0.5">Inventory analytics and audit trail</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary text-fg cursor-pointer"
+            <button
+              type="button"
+              onClick={() => {
+                series.refresh()
+                movers.refresh()
+                byCategory.refresh()
+                audit.refresh()
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm text-muted-fg hover:text-fg hover:border-border-strong transition-colors"
             >
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-              <option value="ytd">Year to date</option>
-            </select>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm text-muted-fg hover:text-fg hover:border-border-strong transition-colors">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 4v5h5M20 20v-5h-5M4 20l5-5M20 4l-5 5" />
+              </svg>
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={exportTab}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm text-muted-fg hover:text-fg hover:border-border-strong transition-colors"
+            >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              Export
+              Export CSV
             </button>
           </div>
         </div>
@@ -141,15 +181,17 @@ export default function Reports() {
       </div>
 
       <div className="page-pad py-6 space-y-5">
+        {series.error && <ErrorState message={series.error} onRetry={series.refresh} />}
+
         {tab === 'Overview' && (
           <>
             {/* Summary KPIs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               {[
-                { label: 'Units Sold', value: totalSold.toString(), sub: 'This week' },
-                { label: 'Units Received', value: totalReceived.toString(), sub: 'This week' },
-                { label: 'Est. Revenue', value: `$${totalRevenue.toLocaleString()}`, sub: 'This week' },
-                { label: 'Avg Margin', value: `${avgMargin}%`, sub: 'Across categories' },
+                { label: 'Units Out', value: formatNumber(totalRemoved), sub: 'Last 7 days' },
+                { label: 'Units Received', value: formatNumber(totalReceived), sub: 'Last 7 days' },
+                { label: 'Est. Revenue', value: formatMoneyCompact(totalRevenue), sub: 'Last 30 days' },
+                { label: 'Avg Margin', value: `${avgMargin}%`, sub: 'Across top movers' },
               ].map((k) => (
                 <div key={k.label} className="bg-card border border-border rounded-lg p-4">
                   <div className="text-xs text-muted-fg mb-1">{k.label}</div>
@@ -163,19 +205,27 @@ export default function Reports() {
               {/* Movement chart */}
               <div className="bg-card border border-border rounded-lg p-5">
                 <h2 className="font-display text-[15px] font-medium text-fg mb-1">Daily Inventory Movements</h2>
-                <p className="text-xs text-muted-fg mb-5">Units sold vs. received this week</p>
-                <SimpleBarChart />
+                <p className="text-xs text-muted-fg mb-5">Units out vs. received this week</p>
+                {series.loading && !series.data ? (
+                  <LoadingRows rows={3} label="Loading movements" />
+                ) : movementData.length === 0 ? (
+                  <EmptyState title="No movements in this window" />
+                ) : (
+                  <SimpleBarChart series={movementData} />
+                )}
               </div>
 
               {/* Top movers */}
               <div className="bg-card border border-border rounded-lg overflow-hidden">
                 <div className="px-5 py-3.5 border-b border-border">
                   <h2 className="font-display text-[15px] font-medium text-fg">Top Movers</h2>
-                  <p className="text-xs text-muted-fg mt-0.5">Most sold products this week</p>
+                  <p className="text-xs text-muted-fg mt-0.5">Most sold products in the last 30 days</p>
                 </div>
+                {movers.loading && !movers.data && <LoadingRows rows={5} label="Loading top movers" />}
+                {!movers.loading && topMovers.length === 0 && <EmptyState title="No sales recorded yet" />}
                 <div className="divide-y divide-border">
                   {topMovers.map((p, i) => (
-                    <div key={i} className="px-5 py-3 hover:bg-subtle/40 transition-colors">
+                    <div key={p.id} className="px-5 py-3 hover:bg-subtle/40 transition-colors">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="font-mono text-sm font-semibold text-muted-fg w-4 shrink-0">{i + 1}</span>
@@ -185,13 +235,12 @@ export default function Reports() {
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="font-mono text-sm font-semibold text-fg">{p.sold} sold</div>
-                          <div className="text-[11px] text-muted-fg">${p.revenue.toFixed(0)}</div>
+                          <div className="font-mono text-sm font-semibold text-fg">{formatNumber(p.unitsSold)} sold</div>
+                          <div className="text-[11px] text-muted-fg">{formatMoney(p.revenue)}</div>
                         </div>
-                        <div className="shrink-0">
-                          {p.trend === 'up' && <span className="text-success text-sm">↑</span>}
-                          {p.trend === 'down' && <span className="text-danger text-sm">↓</span>}
-                          {p.trend === 'steady' && <span className="text-muted-fg text-sm">→</span>}
+                        <div className="shrink-0 text-right w-16">
+                          <div className="font-mono text-[11px] text-success">+{formatNumber(p.unitsReceived)}</div>
+                          <div className="text-[10px] text-muted-fg">received</div>
                         </div>
                       </div>
                     </div>
@@ -205,23 +254,30 @@ export default function Reports() {
               <div className="px-5 py-3.5 border-b border-border">
                 <h2 className="font-display text-[15px] font-medium text-fg">By Category</h2>
               </div>
+              {byCategory.loading && !byCategory.data && <LoadingRows rows={5} label="Loading categories" />}
               <div className="table-wrap">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-subtle/50">
                     <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Category</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Products</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">On Hand</th>
                     <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Units Sold</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Revenue</th>
-                    <th className="px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Avg Margin</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Stock Value</th>
+                    <th className="px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Share of Value</th>
                   </tr>
                 </thead>
                 <tbody>
                   {categoryData.map((c) => (
                     <tr key={c.category} className="border-b border-border hover:bg-subtle/30 transition-colors">
                       <td className="px-5 py-3 font-medium text-fg">{c.category}</td>
-                      <td className="px-3 py-3 text-right font-mono text-sm">{c.sold}</td>
-                      <td className="px-3 py-3 text-right font-mono text-sm font-medium">${c.revenue.toLocaleString()}</td>
-                      <td className="px-5 py-3 w-48"><MarginBar margin={c.margin} /></td>
+                      <td className="px-3 py-3 text-right font-mono text-sm text-muted-fg">{formatNumber(c.products)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm">{formatNumber(c.onHand)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm">{formatNumber(c.unitsSold)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm font-medium">{formatMoneyCompact(c.value)}</td>
+                      <td className="px-5 py-3 w-48">
+                        <ShareBar share={totalValue > 0 ? (c.value / totalValue) * 100 : 0} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -237,37 +293,41 @@ export default function Reports() {
               <h2 className="font-display text-[15px] font-medium text-fg">Inventory Audit Log</h2>
               <span className="text-xs text-muted-fg">Every change is recorded</span>
             </div>
+            {audit.loading && !audit.data && <LoadingRows rows={6} label="Loading audit log" />}
+            {audit.error && <ErrorState message={audit.error} onRetry={audit.refresh} />}
+            {!audit.loading && auditLog.length === 0 && <EmptyState title="Nothing recorded yet" />}
             <div className="table-wrap">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-subtle/50">
-                  <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">ID</th>
-                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Product</th>
-                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Before</th>
-                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">After</th>
+                  <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Action</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Subject</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Change</th>
-                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Reason</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">By</th>
-                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Time</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">When</th>
                 </tr>
               </thead>
               <tbody>
-                {auditLog.map((e) => (
-                  <tr key={e.id} className="border-b border-border hover:bg-subtle/30 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs text-primary">{e.id}</td>
-                    <td className="px-3 py-3 font-medium text-fg">{e.product}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm text-muted-fg">{e.oldQty}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm text-fg font-medium">{e.newQty}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm font-semibold">
-                      <span className={e.change > 0 ? 'text-success' : 'text-danger'}>
-                        {e.change > 0 ? `+${e.change}` : e.change}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-sm text-muted-fg">{e.reason}</td>
-                    <td className="px-3 py-3 text-sm text-fg">{e.employee}</td>
-                    <td className="px-3 py-3 text-sm text-muted-fg">{e.time}</td>
-                  </tr>
-                ))}
+                {auditLog.map((entry) => {
+                  const change = auditChange(entry)
+                  return (
+                    <tr key={entry.id} className="border-b border-border hover:bg-subtle/30 transition-colors">
+                      <td className="px-5 py-3 font-mono text-xs text-primary">{entry.action}</td>
+                      <td className="px-3 py-3 font-medium text-fg">{auditProduct(entry)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm font-semibold">
+                        {change === null ? (
+                          <span className="text-muted-fg">—</span>
+                        ) : (
+                          <span className={change > 0 ? 'text-success' : 'text-danger'}>
+                            {change > 0 ? `+${change}` : change}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-fg">{entry.actor}</td>
+                      <td className="px-3 py-3 text-sm text-muted-fg">{formatDateTime(entry.createdAt)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             </div>
@@ -279,29 +339,28 @@ export default function Reports() {
             <div className="px-5 py-3.5 border-b border-border">
               <h2 className="font-display text-[15px] font-medium text-fg">Daily Movement Breakdown</h2>
             </div>
+            {series.loading && !series.data && <LoadingRows rows={5} label="Loading movements" />}
             <div className="table-wrap">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-subtle/50">
                   <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Day</th>
-                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Units Sold</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Units Out</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Units Received</th>
-                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Adjustments</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-muted-fg uppercase tracking-wider">Net</th>
                 </tr>
               </thead>
               <tbody>
-                {movementData.map((d) => {
-                  const net = d.received - d.sold - d.adjustments
+                {movementData.map((point, index) => {
+                  const net = point.received - point.removed
                   return (
-                    <tr key={d.day} className="border-b border-border hover:bg-subtle/30 transition-colors">
-                      <td className="px-5 py-3 font-medium text-fg">{d.day}</td>
-                      <td className="px-3 py-3 text-right font-mono text-sm text-danger">-{d.sold}</td>
-                      <td className="px-3 py-3 text-right font-mono text-sm text-success">+{d.received}</td>
-                      <td className="px-3 py-3 text-right font-mono text-sm text-muted-fg">{d.adjustments > 0 ? `-${d.adjustments}` : '—'}</td>
+                    <tr key={`${point.label}-row-${index}`} className="border-b border-border hover:bg-subtle/30 transition-colors">
+                      <td className="px-5 py-3 font-medium text-fg">{point.label}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm text-danger">-{formatNumber(point.removed)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm text-success">+{formatNumber(point.received)}</td>
                       <td className="px-3 py-3 text-right font-mono text-sm font-semibold">
                         <span className={net >= 0 ? 'text-success' : 'text-danger'}>
-                          {net > 0 ? `+${net}` : net}
+                          {net > 0 ? `+${formatNumber(net)}` : formatNumber(net)}
                         </span>
                       </td>
                     </tr>

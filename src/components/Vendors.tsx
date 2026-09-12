@@ -1,109 +1,33 @@
 import { useState } from 'react'
+import type { NavSection } from '../App'
+import { usePermissions, useVendors } from '../data/provider'
+import { formatDate, formatMoneyCompact, formatNumber } from '../lib/format'
+import type { Vendor } from '../types'
+import { EmptyState, ErrorState, LoadingRows } from './States'
+import VendorForm from './VendorForm'
 
-interface Vendor {
-  id: string
-  name: string
-  contact: string
-  email: string
-  phone: string
-  rep: string
-  activePOs: number
-  lastOrder: string
-  totalSpend: string
-  categories: string[]
-  status: 'active' | 'inactive'
-}
-
-const vendors: Vendor[] = [
-  {
-    id: 'VEN-01',
-    name: 'McLane Company',
-    contact: 'Distribution',
-    email: 'orders@mclane.com',
-    phone: '(254) 771-7500',
-    rep: 'Mike Patterson',
-    activePOs: 1,
-    lastOrder: 'Sep 4, 2026',
-    totalSpend: '$24,800',
-    categories: ['Cigars', 'Lighters', 'Snacks', 'Beverages'],
-    status: 'active',
-  },
-  {
-    id: 'VEN-02',
-    name: 'Vapor Beast',
-    contact: 'Vape Wholesale',
-    email: 'wholesale@vaporbeast.com',
-    phone: '(602) 900-8000',
-    rep: 'Jamie Chen',
-    activePOs: 1,
-    lastOrder: 'Sep 6, 2026',
-    totalSpend: '$11,250',
-    categories: ['Disposable Vapes', 'E-Liquids', 'Devices'],
-    status: 'active',
-  },
-  {
-    id: 'VEN-03',
-    name: 'World Wide Wholesale',
-    contact: 'General Wholesale',
-    email: 'orders@wwwholesale.com',
-    phone: '(888) 224-6639',
-    rep: 'Sarah Kovacs',
-    activePOs: 0,
-    lastOrder: 'Sep 2, 2026',
-    totalSpend: '$8,940',
-    categories: ['Disposable Vapes', 'Pipes & Glass', 'Accessories'],
-    status: 'active',
-  },
-  {
-    id: 'VEN-04',
-    name: 'Standard Wholesale',
-    contact: 'Paper Goods',
-    email: 'orders@standardwholesale.com',
-    phone: '(800) 555-0142',
-    rep: 'Tom Guerrero',
-    activePOs: 0,
-    lastOrder: 'Aug 30, 2026',
-    totalSpend: '$5,620',
-    categories: ['Rolling Papers', 'Accessories', 'Lighters'],
-    status: 'active',
-  },
-  {
-    id: 'VEN-05',
-    name: 'Coastal Wholesale',
-    contact: 'Alt Products',
-    email: 'orders@coastalwholesale.com',
-    phone: '(855) 202-7830',
-    rep: 'Diana Flores',
-    activePOs: 0,
-    lastOrder: 'Aug 28, 2026',
-    totalSpend: '$4,100',
-    categories: ['Kratom', 'CBD', 'Supplements'],
-    status: 'active',
-  },
-  {
-    id: 'VEN-06',
-    name: 'Southeast Tobacco',
-    contact: 'Tobacco Distributor',
-    email: 'se.tobacco@seltobacco.com',
-    phone: '(800) 555-0188',
-    rep: 'James O\'Brien',
-    activePOs: 0,
-    lastOrder: 'Jul 14, 2026',
-    totalSpend: '$2,300',
-    categories: ['Cigars', 'Pipe Tobacco'],
-    status: 'inactive',
-  },
-]
-
-export default function Vendors() {
+export default function Vendors({ onNavigate }: { onNavigate: (section: NavSection) => void }) {
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<Vendor | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Vendor | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const { canManageInventory } = usePermissions()
+
+  const { data, loading, error, refresh } = useVendors()
+  const vendors = data ?? []
+  const selected = vendors.find((vendor) => vendor.id === selectedId) ?? null
+
+  function openForm(vendor: Vendor | null) {
+    if (!canManageInventory) return
+    setEditing(vendor)
+    setFormOpen(true)
+  }
 
   const filtered = vendors.filter(
     (v) =>
       !search ||
       v.name.toLowerCase().includes(search.toLowerCase()) ||
-      v.rep.toLowerCase().includes(search.toLowerCase())
+      v.rep.toLowerCase().includes(search.toLowerCase()),
   )
 
   return (
@@ -112,11 +36,19 @@ export default function Vendors() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-[22px] font-medium text-fg">Vendors</h1>
-            <p className="text-sm text-muted-fg mt-0.5">{vendors.filter(v => v.status === 'active').length} active vendors</p>
+            <p className="text-sm text-muted-fg mt-0.5">
+              {vendors.filter((v) => v.status === 'active').length} active vendors
+            </p>
           </div>
-          <button className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors">
-            + Add Vendor
-          </button>
+          {canManageInventory && (
+            <button
+              type="button"
+              onClick={() => openForm(null)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              + Add Vendor
+            </button>
+          )}
         </div>
         <div className="mt-4 relative w-full sm:w-72">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-fg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -135,6 +67,11 @@ export default function Vendors() {
       <div className="page-pad py-5 grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* Vendor list */}
         <div className="xl:col-span-2 bg-card border border-border rounded-lg overflow-hidden">
+          {error && <ErrorState message={error} onRetry={refresh} />}
+          {loading && !data && <LoadingRows rows={5} label="Loading vendors" />}
+          {!loading && filtered.length === 0 && (
+            <EmptyState title="No vendors found" detail="Add a vendor or clear the search." />
+          )}
           <div className="table-wrap">
           <table className="w-full text-sm">
             <thead>
@@ -151,7 +88,7 @@ export default function Vendors() {
               {filtered.map((v) => (
                 <tr
                   key={v.id}
-                  onClick={() => setSelected(v === selected ? null : v)}
+                  onClick={() => setSelectedId(v.id === selectedId ? null : v.id)}
                   className={`border-b border-border hover:bg-subtle/40 transition-colors cursor-pointer ${selected?.id === v.id ? 'bg-subtle/60' : ''}`}
                 >
                   <td className="px-5 py-3.5">
@@ -160,21 +97,30 @@ export default function Vendors() {
                         {v.name.charAt(0)}
                       </div>
                       <div>
-                        <div className="font-medium text-fg">{v.name}</div>
-                        <div className="text-[11px] text-muted-fg mt-0.5">{v.contact}</div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setSelectedId(v.id === selectedId ? null : v.id)
+                          }}
+                          className="font-medium text-fg text-left hover:text-primary"
+                        >
+                          {v.name}
+                        </button>
+                        <div className="text-[11px] text-muted-fg mt-0.5">{v.contactName || v.email}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-fg">{v.rep}</td>
+                  <td className="px-3 py-3.5 text-sm text-fg">{v.rep || '—'}</td>
                   <td className="px-3 py-3.5 text-right font-mono">
-                    {v.activePOs > 0 ? (
-                      <span className="font-semibold text-info">{v.activePOs}</span>
+                    {v.activePurchaseOrders > 0 ? (
+                      <span className="font-semibold text-info">{v.activePurchaseOrders}</span>
                     ) : (
                       <span className="text-muted-fg">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-muted-fg">{v.lastOrder}</td>
-                  <td className="px-3 py-3.5 text-right font-mono font-medium text-fg">{v.totalSpend}</td>
+                  <td className="px-3 py-3.5 text-sm text-muted-fg">{formatDate(v.lastOrderAt)}</td>
+                  <td className="px-3 py-3.5 text-right font-mono font-medium text-fg">{formatMoneyCompact(v.totalSpend)}</td>
                   <td className="px-3 py-3.5">
                     <span className={`text-[11px] font-medium ${v.status === 'active' ? 'text-success' : 'text-muted-fg'}`}>
                       {v.status === 'active' ? '● Active' : '○ Inactive'}
@@ -198,40 +144,45 @@ export default function Vendors() {
                   </div>
                   <div>
                     <div className="font-display text-[15px] font-medium text-fg">{selected.name}</div>
-                    <div className="text-xs text-muted-fg">{selected.id}</div>
+                    <div className="text-xs text-muted-fg">{selected.contactName || 'Vendor'}</div>
                   </div>
                 </div>
               </div>
               <div className="px-5 py-4 space-y-3">
                 {[
-                  { label: 'Contact Rep', value: selected.rep },
-                  { label: 'Email', value: selected.email },
-                  { label: 'Phone', value: selected.phone },
-                  { label: 'Active POs', value: selected.activePOs.toString() },
-                  { label: 'Last Order', value: selected.lastOrder },
-                  { label: 'Total Spend', value: selected.totalSpend },
+                  { label: 'Contact Rep', value: selected.rep || '—' },
+                  { label: 'Email', value: selected.email || '—' },
+                  { label: 'Phone', value: selected.phone || '—' },
+                  { label: 'Products', value: formatNumber(selected.productCount) },
+                  { label: 'Active POs', value: formatNumber(selected.activePurchaseOrders) },
+                  { label: 'Last Order', value: formatDate(selected.lastOrderAt) },
+                  { label: 'Total Spend', value: formatMoneyCompact(selected.totalSpend) },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-start justify-between gap-2 text-sm">
                     <span className="text-muted-fg shrink-0">{label}</span>
                     <span className="font-medium text-fg text-right">{value}</span>
                   </div>
                 ))}
-                <div className="pt-2">
-                  <div className="text-xs font-semibold text-muted-fg uppercase tracking-wider mb-2">Categories</div>
-                  <div className="flex flex-wrap gap-1">
-                    {selected.categories.map((c) => (
-                      <span key={c} className="px-2 py-0.5 rounded bg-muted text-xs text-muted-fg">{c}</span>
-                    ))}
-                  </div>
-                </div>
               </div>
               <div className="px-5 py-3 border-t border-border flex gap-2">
-                <button className="flex-1 py-2 rounded-md bg-primary text-primary-fg text-xs font-medium hover:bg-primary/90 transition-colors">
-                  Create PO
-                </button>
-                <button className="flex-1 py-2 rounded-md border border-border text-xs text-muted-fg hover:text-fg transition-colors">
-                  Edit
-                </button>
+                {canManageInventory && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('purchase-orders')}
+                    className="flex-1 py-2 rounded-md bg-primary text-primary-fg text-xs font-medium hover:bg-primary/90 transition-colors"
+                  >
+                    Create PO
+                  </button>
+                )}
+                {canManageInventory && (
+                  <button
+                    type="button"
+                    onClick={() => openForm(selected)}
+                    className="flex-1 py-2 rounded-md border border-border text-xs text-muted-fg hover:text-fg transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -241,6 +192,8 @@ export default function Vendors() {
           )}
         </div>
       </div>
+
+      {formOpen && <VendorForm vendor={editing} onClose={() => setFormOpen(false)} onSaved={refresh} />}
     </div>
   )
 }

@@ -1,10 +1,12 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_CLOVER_API_KEY: string
-  readonly VITE_CLOVER_MERCHANT_ID: string
-  readonly VITE_CLOVER_MERCHANT_NAME: string
-  readonly VITE_CLOVER_WEBHOOK_SECRET: string
+  readonly VITE_API_URL: string
+  readonly VITE_API_SANDBOX: string
+  readonly VITE_SUPABASE_URL: string
+  readonly VITE_SUPABASE_ANON_KEY: string
+  /** When true, production builds still offer demo mode. */
+  readonly VITE_ALLOW_DEMO: string
 }
 
 interface ImportMeta {

@@ -1,29 +1,62 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useDataSource, usePermissions, useSettings, useViewer } from '../data/provider'
+import { formatNumber, formatRelative } from '../lib/format'
 import { useTheme, type ThemePreference } from '../theme'
+import { ErrorState } from './States'
 
 export default function Settings() {
-  const [syncInterval, setSyncInterval] = useState('5')
-  const [reconcileInterval, setReconcileInterval] = useState('60')
-  const [lowStockNotif, setLowStockNotif] = useState(true)
-  const [syncFailNotif, setSyncFailNotif] = useState(true)
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const { preference, setPreference } = useTheme()
+  const source = useDataSource()
+  const { canManageSettings: canEdit, canManageInventory: canRunJobs } = usePermissions()
 
-  function handleSave() {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+  const [name, setName] = useState('')
+  const [timezone, setTimezone] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [running, setRunning] = useState<'retry' | 'reconcile' | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const { preference, setPreference } = useTheme()
+  const { data: settings, error, refresh } = useSettings()
+  const viewer = useViewer()
+
+  // Seed the store fields once the merchant loads, without stomping edits after.
+  useEffect(() => {
+    if (!settings) return
+    setName(settings.merchant.name)
+    setTimezone(settings.merchant.timezone)
+  }, [settings])
+
+  const clover = settings?.clover
+  const sync = settings?.sync
+  const dirty = Boolean(settings) && (name !== settings?.merchant.name || timezone !== settings?.merchant.timezone)
+
+  async function handleSave() {
+    setSaving(true)
+    setActionError(null)
+    try {
+      await source.updateSettings({ name: name.trim(), timezone: timezone.trim() })
+      refresh()
+      // The sidebar reads the store name off the viewer, so re-read that too.
+      viewer.refresh()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 4000)
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Could not save settings')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const cloverApiKey = import.meta.env.VITE_CLOVER_API_KEY ?? ''
-  const cloverStatus = {
-    connected: Boolean(cloverApiKey),
-    merchantName: import.meta.env.VITE_CLOVER_MERCHANT_NAME || "Hassan's Smoke Shop",
-    merchantId: import.meta.env.VITE_CLOVER_MERCHANT_ID || 'MCHT_9V2K4X8P',
-    lastSync: '2 minutes ago',
-    webhookStatus: 'receiving',
-    itemsInClover: 18441,
-    syncedItems: 18492,
+  async function runJob(job: 'retry' | 'reconcile') {
+    setRunning(job)
+    setActionError(null)
+    try {
+      await source.runSyncJob(job)
+      refresh()
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Could not start that job')
+    } finally {
+      setRunning(null)
+    }
   }
 
   return (
@@ -46,6 +79,9 @@ export default function Settings() {
       </div>
 
       <div className="page-pad py-6 max-w-3xl space-y-6">
+        {error && <ErrorState message={error} onRetry={refresh} />}
+        {actionError && <ErrorState title="That didn't go through" message={actionError} />}
+
         {/* Clover Connection */}
         <section>
           <h2 className="font-display text-[16px] font-medium text-fg mb-3">Clover Integration</h2>
@@ -57,26 +93,35 @@ export default function Settings() {
                 </div>
                 <div>
                   <div className="font-medium text-fg">Clover POS</div>
-                  <div className="text-xs text-muted-fg">{cloverStatus.connected ? 'Connected via env' : 'Missing VITE_CLOVER_API_KEY'}</div>
+                  <div className="text-xs text-muted-fg">
+                    {clover
+                      ? clover.mode === 'mock'
+                        ? 'Mock adapter — no live merchant yet'
+                        : clover.connected
+                          ? `Connected (${clover.environment})`
+                          : 'Not connected — run the OAuth flow'
+                      : 'Loading…'}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`flex items-center gap-1.5 text-xs font-medium ${cloverStatus.connected ? 'text-success' : 'text-warning'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${cloverStatus.connected ? 'bg-success' : 'bg-warning'}`} />
-                  {cloverStatus.connected ? 'Connected' : 'Not configured'}
+                <span className={`flex items-center gap-1.5 text-xs font-medium ${clover?.connected ? 'text-success' : 'text-warning'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${clover?.connected ? 'bg-success' : 'bg-warning'}`} />
+                  {clover?.connected ? 'Connected' : 'Not configured'}
                 </span>
-                <button className="ml-2 text-xs text-danger hover:underline underline-offset-2">Disconnect</button>
               </div>
             </div>
 
             <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
               {[
-                { label: 'Merchant Name', value: cloverStatus.merchantName },
-                { label: 'Merchant ID', value: cloverStatus.merchantId, mono: true },
-                { label: 'Last Sync', value: cloverStatus.lastSync },
-                { label: 'Webhook Status', value: 'Receiving events' },
-                { label: 'Clover Inventory', value: `${cloverStatus.itemsInClover.toLocaleString()} items` },
-                { label: 'Our Inventory', value: `${cloverStatus.syncedItems.toLocaleString()} items` },
+                { label: 'Store Name', value: settings?.merchant.name || '—' },
+                { label: 'Clover Merchant ID', value: clover?.merchantId ?? '—', mono: true },
+                { label: 'Mode', value: clover ? clover.mode : '—' },
+                { label: 'Webhooks', value: clover?.webhooksConfigured ? 'Configured' : 'Not configured' },
+                { label: 'Last Push', value: formatRelative(sync?.lastSyncedAt ?? null) },
+                { label: 'Last Reconciliation', value: formatRelative(sync?.lastReconciledAt ?? null) },
+                { label: 'Pending Sync', value: `${formatNumber(sync?.pending ?? 0)} items` },
+                { label: 'Failed Sync', value: `${formatNumber(sync?.failed ?? 0)} items` },
               ].map(({ label, value, mono }) => (
                 <div key={label} className="flex items-center justify-between text-sm">
                   <span className="text-muted-fg">{label}</span>
@@ -86,19 +131,9 @@ export default function Settings() {
             </div>
 
             <div className="px-5 py-3 border-t border-border bg-subtle/30">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-xs font-semibold text-muted-fg uppercase tracking-wider mb-0.5">Clover API Key</div>
-                  <div className="font-mono text-xs text-fg">
-                    {showApiKey ? cloverApiKey || 'Not set in .env' : '••••••••••••••••••••••••••'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="text-xs text-primary font-medium hover:underline underline-offset-2"
-                >
-                  {showApiKey ? 'Hide' : 'Reveal'}
-                </button>
+              <div className="text-xs text-muted-fg">
+                Clover credentials live on the API, never in this app. Connect a merchant by sending them through
+                <span className="font-mono text-fg"> /oauth/clover/start</span>.
               </div>
             </div>
           </div>
@@ -135,102 +170,44 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* Sync Settings */}
+        {/* Sync schedule */}
         <section>
-          <h2 className="font-display text-[16px] font-medium text-fg mb-3">Sync Configuration</h2>
-          <div className="bg-card border border-border rounded-lg divide-y divide-border">
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-fg">Webhook reconciliation interval</div>
-                <div className="text-xs text-muted-fg mt-0.5">How often to cross-check Clover vs. our inventory</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={reconcileInterval}
-                  onChange={(e) => setReconcileInterval(e.target.value)}
-                  className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary text-fg cursor-pointer"
-                >
-                  <option value="30">Every 30 min</option>
-                  <option value="60">Every 60 min</option>
-                  <option value="120">Every 2 hours</option>
-                  <option value="360">Every 6 hours</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-fg">Push inventory to Clover</div>
-                <div className="text-xs text-muted-fg mt-0.5">Interval for pushing our changes back to Clover POS</div>
-              </div>
-              <select
-                value={syncInterval}
-                onChange={(e) => setSyncInterval(e.target.value)}
-                className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary text-fg cursor-pointer"
-              >
-                <option value="1">Every 1 min</option>
-                <option value="5">Every 5 min</option>
-                <option value="15">Every 15 min</option>
-                <option value="30">Every 30 min</option>
-              </select>
-            </div>
-
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-fg">Max sync retry attempts</div>
-                <div className="text-xs text-muted-fg mt-0.5">Before marking a sync as permanently failed</div>
-              </div>
-              <select className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary text-fg cursor-pointer">
-                <option>5 attempts</option>
-                <option>10 attempts</option>
-                <option>20 attempts</option>
-              </select>
-            </div>
-
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-fg">Webhook idempotency window</div>
-                <div className="text-xs text-muted-fg mt-0.5">Deduplication window for Clover webhook events</div>
-              </div>
-              <select className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary text-fg cursor-pointer">
-                <option>24 hours</option>
-                <option>48 hours</option>
-                <option>7 days</option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* Notifications */}
-        <section>
-          <h2 className="font-display text-[16px] font-medium text-fg mb-3">Notifications</h2>
+          <h2 className="font-display text-[16px] font-medium text-fg mb-3">Sync Schedule</h2>
           <div className="bg-card border border-border rounded-lg divide-y divide-border">
             {[
-              { label: 'Low stock alerts', desc: 'Notify when items fall below minimum threshold', state: lowStockNotif, set: setLowStockNotif },
-              { label: 'Clover sync failures', desc: 'Notify when inventory fails to sync to Clover', state: syncFailNotif, set: setSyncFailNotif },
-            ].map((item) => (
-              <div key={item.label} className="px-5 py-4 flex items-center justify-between gap-4">
+              {
+                label: 'Push pending changes to Clover',
+                desc: 'Retry worker drains the sync queue every 5 minutes with exponential backoff',
+                job: 'retry' as const,
+                cta: 'Run retry now',
+              },
+              {
+                label: 'Reconcile quantities against Clover',
+                desc: 'Hourly pass that records every mismatch and heals the ones our ledger owns',
+                job: 'reconcile' as const,
+                cta: 'Reconcile now',
+              },
+            ].map((row) => (
+              <div key={row.job} className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-medium text-fg">{item.label}</div>
-                  <div className="text-xs text-muted-fg mt-0.5">{item.desc}</div>
+                  <div className="text-sm font-medium text-fg">{row.label}</div>
+                  <div className="text-xs text-muted-fg mt-0.5">{row.desc}</div>
                 </div>
                 <button
-                  onClick={() => item.set(!item.state)}
-                  className={`relative w-10 h-5.5 rounded-full transition-colors ${item.state ? 'bg-primary' : 'bg-muted'}`}
-                  style={{ height: '22px', width: '40px' }}
+                  type="button"
+                  disabled={!canRunJobs || running !== null}
+                  title={canRunJobs ? undefined : 'Only an owner or manager can run sync jobs'}
+                  onClick={() => runJob(row.job)}
+                  className="px-4 py-2 rounded-md border border-border text-sm font-medium text-muted-fg hover:text-fg disabled:opacity-50 transition-colors whitespace-nowrap"
                 >
-                  <span
-                    className="absolute top-0.5 w-4.5 h-4.5 bg-knob rounded-full shadow-sm transition-transform"
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      top: '2px',
-                      left: item.state ? '20px' : '2px',
-                    }}
-                  />
+                  {running === row.job ? 'Running…' : row.cta}
                 </button>
               </div>
             ))}
+            <div className="px-5 py-3 bg-subtle/30 text-xs text-muted-fg">
+              The catalog pull runs nightly and resumes from a cursor, so a large merchant never trips the function
+              timeout. Schedules are deployment configuration, not per-store settings.
+            </div>
           </div>
         </section>
 
@@ -239,57 +216,43 @@ export default function Settings() {
           <h2 className="font-display text-[16px] font-medium text-fg mb-3">Store Information</h2>
           <div className="bg-card border border-border rounded-lg p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                { label: 'Store Name', placeholder: "Hassan's Smoke Shop", value: "Hassan's Smoke Shop" },
-                { label: 'Timezone', placeholder: 'America/New_York', value: 'America/New_York' },
-                { label: 'Address', placeholder: '123 Main St', value: '123 Main St, Atlanta, GA 30301' },
-                { label: 'Contact Email', placeholder: 'owner@store.com', value: 'hassan@hassansmokeshop.com' },
-              ].map(({ label, placeholder, value }) => (
-                <div key={label}>
-                  <label className="block text-xs font-medium text-muted-fg mb-1">{label}</label>
-                  <input
-                    type="text"
-                    defaultValue={value}
-                    placeholder={placeholder}
-                    className="w-full px-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-fg"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Danger zone */}
-        <section>
-          <h2 className="font-display text-[16px] font-medium text-danger mb-3">Danger Zone</h2>
-          <div className="bg-card border border-danger/20 rounded-lg divide-y divide-border">
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-sm font-medium text-fg">Force full reconciliation</div>
-                <div className="text-xs text-muted-fg mt-0.5">Re-sync all 18,492 products with Clover. May take several minutes.</div>
+                <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="store-name">Store name</label>
+                <input
+                  id="store-name"
+                  type="text"
+                  value={name}
+                  disabled={!canEdit}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Store name"
+                  className="w-full px-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-fg disabled:opacity-60"
+                />
               </div>
-              <button className="px-4 py-2 rounded-md border border-warning/30 text-warning text-sm font-medium hover:bg-warning-bg transition-colors">
-                Run Now
-              </button>
-            </div>
-            <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-sm font-medium text-danger">Clear pending sync queue</div>
-                <div className="text-xs text-muted-fg mt-0.5">Remove all pending Clover sync operations. This cannot be undone.</div>
+                <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="store-timezone">Timezone</label>
+                <input
+                  id="store-timezone"
+                  type="text"
+                  value={timezone}
+                  disabled={!canEdit}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  placeholder="America/New_York"
+                  className="w-full px-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-fg disabled:opacity-60"
+                />
               </div>
-              <button className="px-4 py-2 rounded-md border border-danger/30 text-danger text-sm font-medium hover:bg-danger-bg transition-colors">
-                Clear Queue
-              </button>
             </div>
+            {!canEdit && <p className="text-xs text-muted-fg">Store details are owner-only.</p>}
           </div>
         </section>
 
         <div className="flex justify-end pt-2 pb-8">
           <button
+            type="button"
             onClick={handleSave}
-            className="px-6 py-2.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors"
+            disabled={!canEdit || !dirty || saving}
+            className="px-6 py-2.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
-            Save Settings
+            {saving ? 'Saving…' : 'Save Settings'}
           </button>
         </div>
       </div>

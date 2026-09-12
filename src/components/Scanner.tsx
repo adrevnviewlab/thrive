@@ -1,116 +1,100 @@
 import { useState, useRef } from 'react'
-
-interface ScannedProduct {
-  id: string
-  name: string
-  sku: string
-  upc: string
-  category: string
-  stock: number
-  minStock: number
-  cost: number
-  price: number
-  vendor: string
-  ageRestricted: boolean
-}
-
-const sampleProducts: Record<string, ScannedProduct> = {
-  '850049765432': {
-    id: '12001',
-    name: 'Elf Bar BC5000 Blue Razz',
-    sku: 'ELF-BC5000-BR',
-    upc: '850049765432',
-    category: 'Disposable Vapes',
-    stock: 4,
-    minStock: 20,
-    cost: 9.50,
-    price: 19.99,
-    vendor: 'Vapor Beast',
-    ageRestricted: true,
-  },
-  '077176506101': {
-    id: '12004',
-    name: 'Backwoods Honey Bourbon (5pk)',
-    sku: 'BW-HONEY-5PK',
-    upc: '077176506101',
-    category: 'Cigars',
-    stock: 3,
-    minStock: 24,
-    cost: 6.20,
-    price: 13.99,
-    vendor: 'McLane Company',
-    ageRestricted: true,
-  },
-  '716165175094': {
-    id: '12007',
-    name: 'RAW Classic King Size Rolling Papers',
-    sku: 'RAW-CLS-KS',
-    upc: '716165175094',
-    category: 'Rolling Papers',
-    stock: 8,
-    minStock: 30,
-    cost: 1.10,
-    price: 2.49,
-    vendor: 'Standard Wholesale',
-    ageRestricted: false,
-  },
-  '850010400174': {
-    id: '12011',
-    name: 'Grav Labs 7" Water Pipe',
-    sku: 'GRAV-7WP-CLR',
-    upc: '850010400174',
-    category: 'Pipes & Glass',
-    stock: 6,
-    minStock: 4,
-    cost: 18.00,
-    price: 44.99,
-    vendor: 'World Wide Wholesale',
-    ageRestricted: false,
-  },
-}
-
-const demoScans = [
-  { label: 'Elf Bar BC5000', upc: '850049765432' },
-  { label: 'Backwoods', upc: '077176506101' },
-  { label: 'RAW Papers', upc: '716165175094' },
-  { label: 'Grav Labs Pipe', upc: '850010400174' },
-]
+import { useCategories, useDataSource, usePermissions, useProducts } from '../data/provider'
+import { formatMoney } from '../lib/format'
+import type { Product } from '../types'
+import ProductForm from './ProductForm'
 
 type ActionType = 'receive' | 'remove' | 'damage' | 'return' | 'count' | null
 
+/** Sign and ledger reason for each scanner action. */
+const ACTION_INTENT: Record<Exclude<ActionType, null>, { sign: 1 | -1; reason: string; absolute?: boolean }> = {
+  receive: { sign: 1, reason: 'receive' },
+  remove: { sign: -1, reason: 'adjust' },
+  damage: { sign: -1, reason: 'damage' },
+  return: { sign: 1, reason: 'return' },
+  count: { sign: 1, reason: 'count', absolute: true },
+}
+
 export default function Scanner() {
+  const source = useDataSource()
+  const { canManageInventory } = usePermissions()
+  const { data: catalog, refresh: refreshCatalog } = useProducts()
+  const categories = useCategories()
+
   const [input, setInput] = useState('')
-  const [product, setProduct] = useState<ScannedProduct | null>(null)
+  const [product, setProduct] = useState<Product | null>(null)
   const [notFound, setNotFound] = useState(false)
+  const [looking, setLooking] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionType>(null)
   const [actionQty, setActionQty] = useState('')
   const [actionNote, setActionNote] = useState('')
   const [confirmed, setConfirmed] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Product | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  function handleScan(upc: string) {
+  const demoScans = (catalog ?? [])
+    .filter((item) => item.upc)
+    .slice(0, 4)
+    .map((item) => ({ label: item.name.split(' ').slice(0, 3).join(' '), upc: item.upc }))
+
+  async function handleScan(code: string) {
     setActiveAction(null)
     setConfirmed(false)
     setActionQty('')
     setActionNote('')
-    const found = sampleProducts[upc]
-    if (found) {
-      setProduct(found)
-      setNotFound(false)
-    } else {
+    setActionError(null)
+    setLooking(true)
+    try {
+      const result = await source.lookup(code)
+      if (result.found && result.product) {
+        setProduct(result.product)
+        setNotFound(false)
+      } else {
+        setProduct(null)
+        setNotFound(true)
+      }
+    } catch (error) {
       setProduct(null)
-      setNotFound(true)
+      setNotFound(false)
+      setActionError(error instanceof Error ? error.message : 'Lookup failed')
+    } finally {
+      setLooking(false)
     }
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (input.trim()) handleScan(input.trim())
+    if (input.trim()) void handleScan(input.trim())
   }
 
-  function handleActionSubmit() {
-    setConfirmed(true)
-    setActiveAction(null)
+  async function handleActionSubmit() {
+    if (!product || !activeAction || !canManageInventory) return
+    const intent = ACTION_INTENT[activeAction]
+    const quantity = Number(actionQty)
+    if (!Number.isFinite(quantity) || quantity <= 0) return
+
+    setSaving(true)
+    setActionError(null)
+    try {
+      if (activeAction === 'receive') {
+        await source.receive({ productId: product.id, quantity, note: actionNote })
+      } else {
+        const delta = intent.absolute ? quantity - product.stock : intent.sign * quantity
+        await source.adjust({ productId: product.id, quantity: delta, reason: intent.reason, note: actionNote })
+      }
+      setConfirmed(true)
+      setActiveAction(null)
+      // Re-read so the card shows the quantity the ledger just wrote.
+      const refreshed = await source.lookup(product.upc || product.sku)
+      if (refreshed.found && refreshed.product) setProduct(refreshed.product)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not record that action')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const stockStatusLabel = product
@@ -184,20 +168,21 @@ export default function Scanner() {
             </div>
             <button
               type="submit"
-              className="px-5 py-3 rounded-lg bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors"
+              disabled={looking}
+              className="px-5 py-3 rounded-lg bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
-              Lookup
+              {looking ? 'Looking up…' : 'Lookup'}
             </button>
           </div>
 
           {/* Quick demo buttons */}
           <div className="flex flex-wrap items-center gap-2 mt-3">
-            <span className="text-[11px] text-muted-fg">Try a demo scan:</span>
+            {demoScans.length > 0 && <span className="text-[11px] text-muted-fg">Try a scan:</span>}
             {demoScans.map((s) => (
               <button
                 type="button"
                 key={s.upc}
-                onClick={() => { setInput(s.upc); handleScan(s.upc) }}
+                onClick={() => { setInput(s.upc); void handleScan(s.upc) }}
                 className="text-[11px] px-2 py-1 rounded border border-border text-muted-fg hover:text-fg hover:border-border-strong transition-colors"
               >
                 {s.label}
@@ -210,10 +195,23 @@ export default function Scanner() {
         {notFound && (
           <div className="bg-muted border border-border rounded-lg p-5 text-center">
             <div className="text-muted-fg text-sm">No product found for <span className="font-mono font-medium text-fg">{input}</span></div>
-            <button className="mt-3 text-sm text-primary font-medium hover:underline underline-offset-2">
-              + Create New Product
-            </button>
+            {canManageInventory && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(null)
+                  setFormOpen(true)
+                }}
+                className="mt-3 text-sm text-primary font-medium hover:underline underline-offset-2"
+              >
+                + Create New Product
+              </button>
+            )}
           </div>
+        )}
+
+        {actionError && (
+          <div className="bg-danger-bg border border-danger/20 rounded-lg p-4 mb-4 text-sm text-danger">{actionError}</div>
         )}
 
         {/* Confirmed */}
@@ -255,8 +253,8 @@ export default function Scanner() {
               {[
                 { label: 'Current Stock', value: product.stock.toString(), mono: true },
                 { label: 'Min Stock', value: product.minStock.toString(), mono: true },
-                { label: 'Cost', value: `$${product.cost.toFixed(2)}`, mono: true },
-                { label: 'Price', value: `$${product.price.toFixed(2)}`, mono: true },
+                { label: 'Cost', value: formatMoney(product.cost), mono: true },
+                { label: 'Price', value: formatMoney(product.price), mono: true },
               ].map((stat) => (
                 <div key={stat.label} className="px-4 py-4">
                   <div className="text-[11px] text-muted-fg uppercase tracking-wider font-semibold mb-1">{stat.label}</div>
@@ -276,18 +274,23 @@ export default function Scanner() {
               <span className="text-xs font-medium text-fg">{product.category}</span>
               <span className="mx-2 text-border-strong">·</span>
               <span className="text-xs text-muted-fg">Clover ID: </span>
-              <span className="font-mono text-xs text-fg">CLV-{product.id}</span>
+              <span className="font-mono text-xs text-fg">{product.cloverItemId ?? 'not linked'}</span>
             </div>
 
             {/* Actions */}
             <div className="px-5 py-4 border-t border-border">
               <div className="text-xs font-semibold text-muted-fg uppercase tracking-wider mb-3">Actions</div>
+              {!canManageInventory && (
+                <p className="text-xs text-muted-fg mb-3">Inventory changes require manager access.</p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {actions.map((a) => (
                   <button
                     key={a.id}
+                    type="button"
+                    disabled={!canManageInventory}
                     onClick={() => setActiveAction(activeAction === a.id ? null : a.id)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md border text-sm font-medium transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md border text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                       activeAction === a.id
                         ? a.color.replace('hover:', '')
                         : a.color
@@ -299,13 +302,22 @@ export default function Scanner() {
                     {a.label}
                   </button>
                 ))}
-                <button className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border text-sm font-medium text-muted-fg hover:text-fg hover:border-border-strong transition-all">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                  Edit
-                </button>
+                {canManageInventory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditing(product)
+                      setFormOpen(true)
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border text-sm font-medium text-muted-fg hover:text-fg hover:border-border-strong transition-all"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    Edit
+                  </button>
+                )}
               </div>
 
               {/* Action form */}
@@ -314,7 +326,9 @@ export default function Scanner() {
                   <div className="text-sm font-semibold text-fg mb-3 capitalize">{activeAction} – {product.name}</div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-muted-fg mb-1">Quantity</label>
+                      <label className="block text-xs font-medium text-muted-fg mb-1">
+                        {activeAction === 'count' ? 'Counted quantity' : 'Quantity'}
+                      </label>
                       <input
                         type="number"
                         min="1"
@@ -337,11 +351,11 @@ export default function Scanner() {
                   </div>
                   <div className="flex gap-2 mt-3">
                     <button
-                      onClick={handleActionSubmit}
-                      disabled={!actionQty}
+                      onClick={() => void handleActionSubmit()}
+                      disabled={!actionQty || saving}
                       className="px-4 py-2 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      Confirm {activeAction}
+                      {saving ? 'Saving…' : `Confirm ${activeAction}`}
                     </button>
                     <button
                       onClick={() => setActiveAction(null)}
@@ -356,6 +370,21 @@ export default function Scanner() {
           </div>
         )}
       </div>
+
+      {formOpen && (
+        <ProductForm
+          product={editing}
+          categories={(categories.data ?? []).map((category) => category.name)}
+          initialUpc={editing ? '' : input.trim()}
+          onClose={() => setFormOpen(false)}
+          onSaved={() => {
+            refreshCatalog()
+            // Re-run the scan so the card reflects whatever was just saved.
+            const code = editing?.upc || editing?.sku || input.trim()
+            if (code) void handleScan(code)
+          }}
+        />
+      )}
     </div>
   )
 }

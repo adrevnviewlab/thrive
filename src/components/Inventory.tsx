@@ -1,46 +1,11 @@
 import { useState } from 'react'
+import { useCategories, usePermissions, useProducts } from '../data/provider'
+import { downloadCsv, toCsv } from '../lib/csv'
+import { formatMoney, formatNumber } from '../lib/format'
+import type { Product, StockStatus, SyncStatus } from '../types'
+import ProductForm from './ProductForm'
+import { EmptyState, ErrorState, LoadingRows } from './States'
 
-type StockStatus = 'in-stock' | 'low' | 'critical' | 'out'
-type SyncStatus = 'synced' | 'pending' | 'failed'
-
-interface Product {
-  id: string
-  name: string
-  sku: string
-  upc: string
-  category: string
-  stock: number
-  minStock: number
-  cost: number
-  price: number
-  vendor: string
-  stockStatus: StockStatus
-  syncStatus: SyncStatus
-  ageRestricted: boolean
-}
-
-const products: Product[] = [
-  { id: '12001', name: 'Elf Bar BC5000 Blue Razz', sku: 'ELF-BC5000-BR', upc: '850049765432', category: 'Disposable Vapes', stock: 4, minStock: 20, cost: 9.50, price: 19.99, vendor: 'Vapor Beast', stockStatus: 'critical', syncStatus: 'synced', ageRestricted: true },
-  { id: '12002', name: 'Elf Bar BC5000 Strawberry Mango', sku: 'ELF-BC5000-SM', upc: '850049765433', category: 'Disposable Vapes', stock: 18, minStock: 20, cost: 9.50, price: 19.99, vendor: 'Vapor Beast', stockStatus: 'low', syncStatus: 'synced', ageRestricted: true },
-  { id: '12003', name: 'Hyde Retro RAVE Watermelon Ice', sku: 'HYD-RETRO-WI', upc: '810046230891', category: 'Disposable Vapes', stock: 7, minStock: 15, cost: 8.75, price: 17.99, vendor: 'World Wide Wholesale', stockStatus: 'low', syncStatus: 'pending', ageRestricted: true },
-  { id: '12004', name: 'Backwoods Honey Bourbon (5pk)', sku: 'BW-HONEY-5PK', upc: '077176506101', category: 'Cigars', stock: 3, minStock: 24, cost: 6.20, price: 13.99, vendor: 'McLane Company', stockStatus: 'critical', syncStatus: 'synced', ageRestricted: true },
-  { id: '12005', name: 'Swisher Sweets Grape (2pk)', sku: 'SWI-GRP-2PK', upc: '072140003001', category: 'Cigars', stock: 5, minStock: 48, cost: 1.40, price: 2.99, vendor: 'McLane Company', stockStatus: 'critical', syncStatus: 'synced', ageRestricted: true },
-  { id: '12006', name: 'Swisher Sweets Peach (2pk)', sku: 'SWI-PCH-2PK', upc: '072140003002', category: 'Cigars', stock: 44, minStock: 48, cost: 1.40, price: 2.99, vendor: 'McLane Company', stockStatus: 'low', syncStatus: 'synced', ageRestricted: true },
-  { id: '12007', name: 'RAW Classic King Size Rolling Papers', sku: 'RAW-CLS-KS', upc: '716165175094', category: 'Rolling Papers', stock: 8, minStock: 30, cost: 1.10, price: 2.49, vendor: 'Standard Wholesale', stockStatus: 'low', syncStatus: 'synced', ageRestricted: false },
-  { id: '12008', name: 'RAW Cone 1¼ (32pk)', sku: 'RAW-CONE-125', upc: '716165175100', category: 'Rolling Papers', stock: 32, minStock: 24, cost: 2.80, price: 5.99, vendor: 'Standard Wholesale', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-  { id: '12009', name: 'Bic Classic Lighter – Assorted', sku: 'BIC-CLS-ASST', upc: '070330608011', category: 'Lighters', stock: 14, minStock: 50, cost: 0.95, price: 2.29, vendor: 'McLane Company', stockStatus: 'low', syncStatus: 'synced', ageRestricted: false },
-  { id: '12010', name: 'Clipper Refillable Lighter', sku: 'CLIP-STD-ASST', upc: '897511000012', category: 'Lighters', stock: 28, minStock: 30, cost: 1.20, price: 3.49, vendor: 'Standard Wholesale', stockStatus: 'low', syncStatus: 'synced', ageRestricted: false },
-  { id: '12011', name: 'Grav Labs 7" Water Pipe', sku: 'GRAV-7WP-CLR', upc: '850010400174', category: 'Pipes & Glass', stock: 6, minStock: 4, cost: 18.00, price: 44.99, vendor: 'World Wide Wholesale', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-  { id: '12012', name: 'Santa Cruz Shredder 3pc Grinder Med.', sku: 'SCS-3PC-MED', upc: '850024291035', category: 'Accessories', stock: 11, minStock: 8, cost: 12.50, price: 29.99, vendor: 'World Wide Wholesale', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-  { id: '12013', name: 'Smoke Buddy Personal Air Filter', sku: 'SB-ORIG-BLK', upc: '855681002001', category: 'Accessories', stock: 0, minStock: 6, cost: 6.00, price: 14.99, vendor: 'Standard Wholesale', stockStatus: 'out', syncStatus: 'synced', ageRestricted: false },
-  { id: '12014', name: 'Kratom Capsules Maeng Da 50ct', sku: 'KRA-MD-50CT', upc: '851294007123', category: 'Kratom', stock: 23, minStock: 12, cost: 11.00, price: 24.99, vendor: 'Coastal Wholesale', stockStatus: 'in-stock', syncStatus: 'failed', ageRestricted: false },
-  { id: '12015', name: 'CBD Gummies 25mg Full Spectrum (30ct)', sku: 'CBD-GUM-FS30', upc: '860002345678', category: 'CBD', stock: 17, minStock: 10, cost: 14.00, price: 34.99, vendor: 'Coastal Wholesale', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-  { id: '12016', name: 'Zig-Zag Ultra Thin King Size', sku: 'ZZ-ULTRA-KS', upc: '076618000123', category: 'Rolling Papers', stock: 54, minStock: 36, cost: 0.80, price: 1.89, vendor: 'McLane Company', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-  { id: '12017', name: 'Elements Rice Papers 1¼', sku: 'ELM-RICE-125', upc: '040232021121', category: 'Rolling Papers', stock: 0, minStock: 18, cost: 0.90, price: 1.99, vendor: 'Standard Wholesale', stockStatus: 'out', syncStatus: 'synced', ageRestricted: false },
-  { id: '12018', name: 'Juicy Jay Blueberry King Size', sku: 'JJ-BLUE-KS', upc: '040232030123', category: 'Rolling Papers', stock: 29, minStock: 24, cost: 0.85, price: 1.99, vendor: 'Standard Wholesale', stockStatus: 'in-stock', syncStatus: 'synced', ageRestricted: false },
-]
-
-const categories = ['All Categories', 'Disposable Vapes', 'Cigars', 'Rolling Papers', 'Lighters', 'Pipes & Glass', 'Accessories', 'Kratom', 'CBD']
 const statusFilters = ['All', 'In Stock', 'Low Stock', 'Critical', 'Out of Stock']
 
 function StockBadge({ status }: { status: StockStatus }) {
@@ -74,6 +39,17 @@ export default function Inventory() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [categoryFilter, setCategoryFilter] = useState('All Categories')
 
+  const [editing, setEditing] = useState<Product | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+
+  const { canManageInventory } = usePermissions()
+  const { data, loading, error, refresh } = useProducts()
+  const categoryQuery = useCategories()
+
+  const products = data ?? []
+  const categoryNames = (categoryQuery.data ?? []).map((category) => category.name)
+  const categories = ['All Categories', ...categoryNames]
+
   const filtered = products.filter((p) => {
     const matchSearch =
       !search ||
@@ -89,6 +65,33 @@ export default function Inventory() {
     const matchCat = categoryFilter === 'All Categories' || p.category === categoryFilter
     return matchSearch && matchStatus && matchCat
   })
+
+  function openForm(product: Product | null) {
+    setEditing(product)
+    setFormOpen(true)
+  }
+
+  function handleExport() {
+    downloadCsv(
+      `stackr-inventory-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(
+        ['Name', 'SKU', 'UPC', 'Category', 'Vendor', 'Stock', 'Min stock', 'Cost', 'Price', 'Status', 'Clover item'],
+        filtered.map((product) => [
+          product.name,
+          product.sku,
+          product.upc,
+          product.category,
+          product.vendor,
+          product.stock,
+          product.minStock,
+          product.cost.toFixed(2),
+          product.price.toFixed(2),
+          product.stockStatus,
+          product.cloverItemId ?? '',
+        ]),
+      ),
+    )
+  }
 
   const counts = {
     All: products.length,
@@ -106,19 +109,30 @@ export default function Inventory() {
           <div>
             <h1 className="font-display text-[22px] font-medium text-fg">Inventory</h1>
             <p className="text-sm text-muted-fg mt-0.5">
-              {products.length.toLocaleString()} products · {products.filter(p => p.stockStatus === 'critical' || p.stockStatus === 'out').length} need attention
+              {formatNumber(products.length)} products · {products.filter((p) => p.stockStatus === 'critical' || p.stockStatus === 'out').length} need attention
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm text-muted-fg hover:text-fg hover:border-border-strong transition-colors">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm text-muted-fg hover:text-fg hover:border-border-strong disabled:opacity-50 transition-colors"
+            >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
               Export
             </button>
-            <button className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors">
-              + Add Product
-            </button>
+            {canManageInventory && (
+              <button
+                type="button"
+                onClick={() => openForm(null)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                + Add Product
+              </button>
+            )}
           </div>
         </div>
 
@@ -142,7 +156,9 @@ export default function Inventory() {
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="px-3 py-1.5 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-fg cursor-pointer"
           >
-            {categories.map((c) => <option key={c}>{c}</option>)}
+            {categories.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
           </select>
 
           <div className="flex rounded-md border border-border overflow-x-auto">
@@ -168,7 +184,12 @@ export default function Inventory() {
 
       {/* Table */}
       <div className="page-pad py-5">
+        {error && <ErrorState message={error} onRetry={refresh} />}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
+          {loading && !data && <LoadingRows rows={8} label="Loading products" />}
+          {!loading && filtered.length === 0 && (
+            <EmptyState title="No products match these filters" detail="Clear the search or pick another category." />
+          )}
           <div className="table-wrap">
           <table className="w-full text-sm">
             <thead>
@@ -210,15 +231,21 @@ export default function Inventory() {
                     </span>
                   </td>
                   <td className="px-3 py-3.5 text-right font-mono text-sm text-muted-fg">{p.minStock}</td>
-                  <td className="px-3 py-3.5 text-right font-mono text-sm text-muted-fg">${p.cost.toFixed(2)}</td>
-                  <td className="px-3 py-3.5 text-right font-mono text-sm text-fg font-medium">${p.price.toFixed(2)}</td>
+                  <td className="px-3 py-3.5 text-right font-mono text-sm text-muted-fg">{formatMoney(p.cost)}</td>
+                  <td className="px-3 py-3.5 text-right font-mono text-sm text-fg font-medium">{formatMoney(p.price)}</td>
                   <td className="px-3 py-3.5 text-sm text-muted-fg">{p.vendor}</td>
                   <td className="px-3 py-3.5"><StockBadge status={p.stockStatus} /></td>
                   <td className="px-3 py-3.5"><SyncBadge status={p.syncStatus} /></td>
                   <td className="px-4 py-3.5">
-                    <button className="opacity-0 group-hover:opacity-100 text-xs text-primary font-medium hover:underline underline-offset-2 transition-opacity">
-                      Edit
-                    </button>
+                    {canManageInventory && (
+                      <button
+                        type="button"
+                        onClick={() => openForm(p)}
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-xs text-primary font-medium hover:underline underline-offset-2 transition-opacity"
+                      >
+                        Edit
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -226,17 +253,31 @@ export default function Inventory() {
           </table>
           </div>
           <div className="px-5 py-3 border-t border-border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs text-muted-fg">
-            <span>Showing {filtered.length} of {products.length} products</span>
-            <div className="flex items-center gap-1">
-              <button className="px-2 py-1 rounded border border-border hover:bg-subtle transition-colors">← Prev</button>
-              <button className="px-2 py-1 rounded border border-border bg-primary text-primary-fg">1</button>
-              <button className="px-2 py-1 rounded border border-border hover:bg-subtle transition-colors">2</button>
-              <button className="px-2 py-1 rounded border border-border hover:bg-subtle transition-colors">3</button>
-              <button className="px-2 py-1 rounded border border-border hover:bg-subtle transition-colors">Next →</button>
-            </div>
+            <span>
+              Showing {formatNumber(filtered.length)} of {formatNumber(products.length)} products
+            </span>
+            <button
+              type="button"
+              onClick={refresh}
+              className="px-2 py-1 rounded border border-border hover:bg-subtle transition-colors"
+            >
+              Refresh
+            </button>
           </div>
         </div>
       </div>
+
+      {formOpen && (
+        <ProductForm
+          product={editing}
+          categories={categoryNames}
+          onClose={() => setFormOpen(false)}
+          onSaved={() => {
+            refresh()
+            categoryQuery.refresh()
+          }}
+        />
+      )}
     </div>
   )
 }

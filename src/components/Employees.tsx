@@ -1,72 +1,30 @@
 import { useState } from 'react'
-
-type Role = 'owner' | 'manager' | 'employee'
-
-interface Employee {
-  id: string
-  name: string
-  email: string
-  role: Role
-  lastLogin: string
-  status: 'active' | 'inactive'
-  permissions: string[]
-}
-
-const employees: Employee[] = [
-  {
-    id: 'EMP-01',
-    name: 'Hassan M.',
-    email: 'hassan@hassansmokeshop.com',
-    role: 'owner',
-    lastLogin: 'Today, 9:44 PM',
-    status: 'active',
-    permissions: ['Full access'],
-  },
-  {
-    id: 'EMP-02',
-    name: 'Marcus T.',
-    email: 'marcus@hassansmokeshop.com',
-    role: 'manager',
-    lastLogin: 'Today, 4:12 PM',
-    status: 'active',
-    permissions: ['Inventory', 'Reports', 'Purchase Orders', 'Approve Stock Counts'],
-  },
-  {
-    id: 'EMP-03',
-    name: 'Aisha R.',
-    email: 'aisha@hassansmokeshop.com',
-    role: 'employee',
-    lastLogin: 'Today, 1:30 PM',
-    status: 'active',
-    permissions: ['Scan', 'Receive Stock', 'Stock Count', 'Inventory View'],
-  },
-  {
-    id: 'EMP-04',
-    name: 'Jordan K.',
-    email: 'jordan@hassansmokeshop.com',
-    role: 'employee',
-    lastLogin: 'Yesterday, 6:00 PM',
-    status: 'active',
-    permissions: ['Scan', 'Receive Stock', 'Stock Count', 'Inventory View'],
-  },
-  {
-    id: 'EMP-05',
-    name: 'Tariq B.',
-    email: 'tariq@hassansmokeshop.com',
-    role: 'employee',
-    lastLogin: 'Sep 2, 2026',
-    status: 'inactive',
-    permissions: ['Scan', 'Inventory View'],
-  },
-]
+import { useDataSource, useEmployees, usePermissions } from '../data/provider'
+import { formatDateTime } from '../lib/format'
+import type { Employee, Role } from '../types'
+import { EmptyState, ErrorState, LoadingRows } from './States'
 
 const roleConfig: Record<Role, { label: string; cls: string; desc: string }> = {
   owner: { label: 'Owner', cls: 'bg-accent/10 text-accent', desc: 'Full system access including settings, cost data, and delete operations.' },
+  admin: { label: 'Admin', cls: 'bg-accent/10 text-accent', desc: 'Support access across the merchant, including settings and employees.' },
   manager: { label: 'Manager', cls: 'bg-info-bg text-info', desc: 'Inventory, reports, purchase orders, and stock count approvals.' },
   employee: { label: 'Employee', cls: 'bg-muted text-muted-fg', desc: 'Scan, receive stock, stock counts, and basic inventory view.' },
 }
 
 const rolePermissions: Record<Role, { name: string; allowed: boolean }[]> = {
+  admin: [
+    { name: 'View Inventory', allowed: true },
+    { name: 'Edit Inventory', allowed: true },
+    { name: 'Delete Products', allowed: true },
+    { name: 'View Cost/Margin', allowed: true },
+    { name: 'Receive Stock', allowed: true },
+    { name: 'Adjustments (any size)', allowed: true },
+    { name: 'Purchase Orders', allowed: true },
+    { name: 'Approve Stock Counts', allowed: true },
+    { name: 'View Reports', allowed: true },
+    { name: 'Manage Employees', allowed: true },
+    { name: 'Settings / Clover', allowed: true },
+  ],
   owner: [
     { name: 'View Inventory', allowed: true },
     { name: 'Edit Inventory', allowed: true },
@@ -109,8 +67,57 @@ const rolePermissions: Record<Role, { name: string; allowed: boolean }[]> = {
 }
 
 export default function Employees() {
-  const [selected, setSelected] = useState<Employee | null>(null)
+  const source = useDataSource()
+  const { canManageEmployees } = usePermissions()
+  const { data, loading, error, refresh } = useEmployees()
+  const employees = data ?? []
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'details' | 'permissions'>('details')
+  const [editingRole, setEditingRole] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
+  const [invite, setInvite] = useState<{ name: string; email: string; role: Role }>({
+    name: '',
+    email: '',
+    role: 'employee',
+  })
+  const [saving, setSaving] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+
+  async function submitInvite(event: React.FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setInviteError(null)
+    try {
+      await source.inviteEmployee(invite)
+      setInvite({ name: '', email: '', role: 'employee' })
+      setInviting(false)
+      refresh()
+    } catch (cause) {
+      setInviteError(cause instanceof Error ? cause.message : 'Could not send that invite')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const selected = employees.find((employee) => employee.id === selectedId) ?? null
+
+  async function updateSelected(patch: { role?: Role; status?: Employee['status'] }) {
+    if (!selected) return
+    setUpdating(true)
+    setUpdateError(null)
+    try {
+      await source.updateEmployee(selected.id, patch)
+      setEditingRole(false)
+      refresh()
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : 'Could not update this employee')
+    } finally {
+      setUpdating(false)
+    }
+  }
 
   return (
     <div className="min-h-full">
@@ -119,18 +126,65 @@ export default function Employees() {
           <div>
             <h1 className="font-display text-[22px] font-medium text-fg">Employees</h1>
             <p className="text-sm text-muted-fg mt-0.5">
-              {employees.filter(e => e.status === 'active').length} active · Role-based access control
+              {employees.filter((e) => e.status === 'active').length} active · Role-based access control
             </p>
           </div>
-          <button className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 transition-colors">
-            + Invite Employee
+          <button
+            type="button"
+            disabled={!canManageEmployees}
+            title={canManageEmployees ? undefined : 'Only an owner can invite employees'}
+            onClick={() => setInviting((current) => !current)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {inviting ? 'Cancel' : '+ Invite Employee'}
           </button>
         </div>
+
+        {inviting && (
+          <form onSubmit={submitInvite} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <input
+              type="text"
+              required
+              placeholder="Full name"
+              value={invite.name}
+              onChange={(e) => setInvite({ ...invite, name: e.target.value })}
+              className="px-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary"
+            />
+            <input
+              type="email"
+              required
+              placeholder="Work email"
+              value={invite.email}
+              onChange={(e) => setInvite({ ...invite, email: e.target.value })}
+              className="px-3 py-2 text-sm rounded-md border border-border bg-bg focus:outline-none focus:border-primary"
+            />
+            <select
+              value={invite.role}
+              onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}
+              className="px-3 py-2 text-sm rounded-md border border-border bg-bg text-fg"
+            >
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+              <option value="owner">Owner</option>
+            </select>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-md bg-primary text-primary-fg text-sm font-medium hover:bg-primary/90 disabled:opacity-40 transition-colors"
+            >
+              {saving ? 'Inviting…' : 'Send invite'}
+            </button>
+            {inviteError && <p className="sm:col-span-4 text-xs text-danger">{inviteError}</p>}
+          </form>
+        )}
       </div>
 
       <div className="page-pad py-5 grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* Employee list */}
         <div className="xl:col-span-2 bg-card border border-border rounded-lg overflow-hidden">
+          {error && <ErrorState message={error} onRetry={refresh} />}
+          {loading && !data && <LoadingRows rows={5} label="Loading employees" />}
+          {!loading && employees.length === 0 && <EmptyState title="No employees yet" detail="Invite your first teammate." />}
           <div className="table-wrap">
           <table className="w-full text-sm">
             <thead>
@@ -146,8 +200,13 @@ export default function Employees() {
               {employees.map((emp) => (
                 <tr
                   key={emp.id}
-                  onClick={() => { setSelected(emp === selected ? null : emp); setTab('details') }}
-                  className={`border-b border-border hover:bg-subtle/40 transition-colors cursor-pointer ${selected?.id === emp.id ? 'bg-subtle/60' : ''}`}
+                  onClick={() => {
+                    setSelectedId(emp.id === selectedId ? null : emp.id)
+                    setTab('details')
+                    setEditingRole(false)
+                    setUpdateError(null)
+                  }}
+                  className={`group border-b border-border hover:bg-subtle/40 transition-colors cursor-pointer ${selectedId === emp.id ? 'bg-subtle/60' : ''}`}
                 >
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
@@ -165,7 +224,7 @@ export default function Employees() {
                       {roleConfig[emp.role].label}
                     </span>
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-muted-fg">{emp.lastLogin}</td>
+                  <td className="px-3 py-3.5 text-sm text-muted-fg">{formatDateTime(emp.lastLoginAt)}</td>
                   <td className="px-3 py-3.5">
                     <span className={`flex items-center gap-1.5 text-xs font-medium ${emp.status === 'active' ? 'text-success' : 'text-muted-fg'}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-success' : 'bg-muted-fg'}`} />
@@ -173,7 +232,19 @@ export default function Employees() {
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className="opacity-0 group-hover:opacity-100 text-xs text-primary font-medium transition-opacity">Edit</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setSelectedId(emp.id)
+                        setTab('details')
+                        setEditingRole(false)
+                        setUpdateError(null)
+                      }}
+                      className="text-xs text-primary font-medium opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      Open<span className="sr-only"> {emp.name}</span>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -219,9 +290,9 @@ export default function Employees() {
                   <div className="space-y-2 pt-1">
                     {[
                       { label: 'Email', value: selected.email },
-                      { label: 'Employee ID', value: selected.id },
-                      { label: 'Last Login', value: selected.lastLogin },
-                      { label: 'Status', value: selected.status === 'active' ? 'Active' : 'Inactive' },
+                      { label: 'Employee ID', value: selected.id.slice(0, 8) },
+                      { label: 'Last Login', value: formatDateTime(selected.lastLoginAt) },
+                      { label: 'Status', value: selected.status === 'active' ? 'Active' : 'Disabled' },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex items-start justify-between gap-2 text-sm">
                         <span className="text-muted-fg shrink-0">{label}</span>
@@ -232,9 +303,13 @@ export default function Employees() {
                   <div className="pt-2">
                     <div className="text-xs font-semibold text-muted-fg uppercase tracking-wider mb-2">Permissions</div>
                     <div className="flex flex-wrap gap-1">
-                      {selected.permissions.map((p) => (
-                        <span key={p} className="px-2 py-0.5 rounded bg-muted text-xs text-muted-fg">{p}</span>
-                      ))}
+                      {rolePermissions[selected.role]
+                        .filter((permission) => permission.allowed)
+                        .map((permission) => (
+                          <span key={permission.name} className="px-2 py-0.5 rounded bg-muted text-xs text-muted-fg">
+                            {permission.name}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 </div>
@@ -261,13 +336,60 @@ export default function Employees() {
                 </div>
               )}
 
-              <div className="px-5 py-3 border-t border-border flex gap-2">
-                <button className="flex-1 py-2 rounded-md border border-border text-xs text-muted-fg hover:text-fg transition-colors">
-                  Edit Role
-                </button>
-                <button className="flex-1 py-2 rounded-md border border-danger/30 text-xs text-danger hover:bg-danger-bg transition-colors">
-                  Deactivate
-                </button>
+              <div className="px-5 py-3 border-t border-border space-y-2">
+                {editingRole ? (
+                  <div className="flex items-center gap-2">
+                    <label className="sr-only" htmlFor="employee-role">
+                      Role for {selected.name}
+                    </label>
+                    <select
+                      id="employee-role"
+                      defaultValue={selected.role}
+                      onChange={(e) => updateSelected({ role: e.target.value as Role })}
+                      disabled={updating}
+                      className="flex-1 px-2 py-1.5 text-xs rounded-md border border-border bg-bg text-fg"
+                    >
+                      {(['owner', 'manager', 'employee'] as const).map((role) => (
+                        <option key={role} value={role}>
+                          {roleConfig[role].label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setEditingRole(false)}
+                      className="px-3 py-1.5 rounded-md text-xs text-muted-fg hover:text-fg transition-colors"
+                    >
+                      Done
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={!canManageEmployees}
+                      title={canManageEmployees ? undefined : 'Only an owner can change roles'}
+                      onClick={() => setEditingRole(true)}
+                      className="flex-1 py-2 rounded-md border border-border text-xs text-muted-fg hover:text-fg disabled:opacity-50 transition-colors"
+                    >
+                      Edit Role
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updating || !canManageEmployees}
+                      onClick={() => updateSelected({ status: selected.status === 'active' ? 'disabled' : 'active' })}
+                      className={`flex-1 py-2 rounded-md border text-xs transition-colors disabled:opacity-50 ${
+                        selected.status === 'active'
+                          ? 'border-danger/30 text-danger hover:bg-danger-bg'
+                          : 'border-border text-muted-fg hover:text-fg'
+                      }`}
+                    >
+                      {selected.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                  </div>
+                )}
+                {updateError && <p className="text-xs text-danger">{updateError}</p>}
+                <p className="text-[11px] text-muted-fg">Role and status changes are owner-only and audited.</p>
               </div>
             </div>
           ) : (

@@ -1,16 +1,40 @@
+import { useState } from 'react'
 import ThemeToggle from '../theme'
 import { useAuth } from '../auth'
 
 const previewPoints = [
   { label: 'Dashboard', detail: 'KPIs, low stock, sync queue' },
-  { label: 'Inventory', detail: '18 mock SKUs with stock states' },
+  { label: 'Inventory', detail: 'Catalog, stock states, CSV export' },
   { label: 'Scanner', detail: 'Barcode lookup + stock actions' },
   { label: 'Ordering', detail: 'POs, vendors, receive flow' },
   { label: 'Ops', detail: 'Counts, reports, employees' },
 ]
 
 export default function Login() {
-  const { enterDemo } = useAuth()
+  const { enterDemo, signIn, liveAuthAvailable, passwordRequired, demoAllowed } = useAuth()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSignIn(event: React.FormEvent) {
+    event.preventDefault()
+    if (!liveAuthAvailable) {
+      if (demoAllowed) enterDemo()
+      else setError('Live sign-in is not configured for this build')
+      return
+    }
+
+    setSigningIn(true)
+    setError(null)
+    try {
+      await signIn(email, password)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sign in failed')
+    } finally {
+      setSigningIn(false)
+    }
+  }
 
   return (
     <div className="relative h-full overflow-auto bg-bg text-fg">
@@ -51,12 +75,16 @@ export default function Login() {
       <main className="relative page-pad pb-[max(2rem,env(safe-area-inset-bottom))] pt-6 sm:pt-10">
         <div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <section className="space-y-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Frontend demo</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+              {liveAuthAvailable ? 'Inventory console' : 'Frontend demo'}
+            </p>
             <h1 className="font-display text-[clamp(2.4rem,6vw,3.75rem)] leading-[1.05] font-medium text-sidebar-fg sm:text-fg max-w-xl">
               STACKR
             </h1>
             <p className="text-base sm:text-lg text-sidebar-muted sm:text-muted-fg max-w-md leading-relaxed">
-              Explore the live inventory console with mock smoke-shop data—no email, password, or Clover account required.
+              {liveAuthAvailable
+                ? 'Sign in with your store account to manage inventory, vendors, and Clover sync.'
+                : 'Explore the inventory console with mock smoke-shop data—no email, password, or Clover account required.'}
             </p>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
               {previewPoints.map((item) => (
@@ -71,65 +99,89 @@ export default function Login() {
           <section className="rounded-2xl border border-border bg-card shadow-[0_24px_60px_color-mix(in_srgb,var(--fg)_12%,transparent)] p-5 sm:p-7">
             <div className="mb-5">
               <h2 className="font-display text-xl font-medium text-fg">Sign in</h2>
-              <p className="text-sm text-muted-fg mt-1">Use demo access to walk the UI structure with seeded data points.</p>
+              <p className="text-sm text-muted-fg mt-1">
+                {liveAuthAvailable
+                  ? 'Use your work email to access the live store ledger.'
+                  : 'Use demo access to walk the UI structure with seeded data.'}
+              </p>
             </div>
 
-            <button
-              type="button"
-              onClick={enterDemo}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-fg px-4 py-3.5 text-sm font-semibold hover:bg-primary/90 transition-colors"
-            >
-              Enter demo — no credentials
-            </button>
+            {demoAllowed && (
+              <>
+                <button
+                  type="button"
+                  onClick={enterDemo}
+                  className={`w-full flex items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-sm font-semibold transition-colors ${
+                    liveAuthAvailable
+                      ? 'border border-border text-fg hover:bg-subtle'
+                      : 'bg-primary text-primary-fg hover:bg-primary/90'
+                  }`}
+                >
+                  Enter demo — no credentials
+                </button>
 
-            <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-fg">
-              <div className="h-px flex-1 bg-border" />
-              <span>or</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
+                {liveAuthAvailable && (
+                  <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-fg">
+                    <div className="h-px flex-1 bg-border" />
+                    <span>or</span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                )}
+              </>
+            )}
 
-            <form
-              className="space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                enterDemo()
-              }}
-            >
-              <div>
-                <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="email">
-                  Work email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="owner@store.com"
-                  autoComplete="username"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2.5 text-sm text-fg placeholder:text-muted-fg/70 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="password">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  placeholder="Any value works in demo"
-                  autoComplete="current-password"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2.5 text-sm text-fg placeholder:text-muted-fg/70 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-fg hover:bg-subtle transition-colors"
-              >
-                Continue with demo account
-              </button>
-            </form>
+            {(liveAuthAvailable || !demoAllowed) && (
+              <form className={`space-y-3 ${demoAllowed && liveAuthAvailable ? '' : ''}`} onSubmit={handleSignIn}>
+                <div>
+                  <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="email">
+                    Work email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    placeholder="owner@store.com"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required={liveAuthAvailable}
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2.5 text-sm text-fg placeholder:text-muted-fg/70 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-fg mb-1" htmlFor="password">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    placeholder={passwordRequired ? 'Your password' : 'Not checked in this build'}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required={passwordRequired}
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2.5 text-sm text-fg placeholder:text-muted-fg/70 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  />
+                </div>
+                {error && <p className="text-xs text-danger">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={signingIn}
+                  className={`w-full rounded-lg px-4 py-2.5 text-sm font-medium disabled:opacity-50 transition-colors ${
+                    liveAuthAvailable && !demoAllowed
+                      ? 'bg-primary text-primary-fg hover:bg-primary/90'
+                      : 'border border-border text-fg hover:bg-subtle'
+                  }`}
+                >
+                  {signingIn ? 'Signing in…' : liveAuthAvailable ? 'Sign in' : 'Continue with demo account'}
+                </button>
+              </form>
+            )}
 
-            <p className="mt-4 text-[11px] leading-relaxed text-muted-fg">
-              Demo session loads Hassan's Smoke Shop mock inventory, Clover sync states, POs, vendors, counts, and reports so you can inspect the frontend layout end to end.
-            </p>
+            {demoAllowed && (
+              <p className="mt-4 text-[11px] leading-relaxed text-muted-fg">
+                Demo session loads Hassan&apos;s Smoke Shop mock inventory, Clover sync states, POs, vendors, counts, and reports so you can inspect the frontend layout end to end.
+              </p>
+            )}
           </section>
         </div>
       </main>
