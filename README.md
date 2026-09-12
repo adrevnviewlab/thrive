@@ -47,7 +47,7 @@ Then run `pnpm dev:sandbox` in stackr-api.
 | API health | https://stackr-api-3470.onrender.com/health |
 | Supabase | https://vbjisnyoabbnkgcdxeqb.supabase.co |
 
-Owner bootstrap account (Auth): `owner@stackr.app` — set/reset the password in the Supabase dashboard if Auth was restricted during bootstrap.
+Owner bootstrap account is seeded in `app_users` as `owner@stackr.app` (linked to Auth when available). If Supabase returns `exceed_egress_quota` on sign-in, lift the org spend cap or wait for egress to reset, then reset the password in the Supabase Auth dashboard.
 
 ```bash
 pnpm typecheck
